@@ -1,0 +1,131 @@
+---
+title: "Parallel Tutorial"
+output: html_notebook
+---
+
+# About R Markdown Notebooks
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+Try executing a chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+# Parallel Webscraping Tutorial
+http://www.business-science.io/code-tools/2016/12/18/multidplyr.html
+
+```{r}
+# devtools::install_github("hadley/multidplyr")
+
+library(multidplyr) # parallel processing
+library(rvest)      # web scraping
+library(quantmod)   # get stock prices; useful stock analysis functions
+library(tidyverse)  # ggplot2, purrr, dplyr, tidyr, readr, tibble
+library(stringr)    # working with strings
+library(lubridate)  # working with dates 
+
+```
+
+```{r}
+library(rvest)
+# Web-scrape SP500 stock list from Wikipedia
+sp_500 <- read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies") %>%
+    html_node("table.wikitable") %>%
+    html_table() %>%
+    select(`Ticker symbol`, Security) %>%
+    as_tibble() %>%
+    rename(symbol = `Ticker symbol`,
+           company = Security)
+# Show results
+sp_500
+```
+
+```{r}
+library(quantmod)
+# Function to Get Stock Prices in Tidy Form
+get_stock_prices <- function(symbol, return_format = "tibble", ...) {
+    # Get stock prices; Handle errors
+    stock_prices <- tryCatch({
+        getSymbols(Symbols = symbol, auto.assign = FALSE, ...)
+    }, error = function(e) {
+        return(NA) # Return NA on error
+    })
+    if (!is.na(stock_prices[[1]])) {
+        # Rename
+        names(stock_prices) <- c("Open", "High", "Low", "Close", "Volume", "Adjusted")
+        # Return in xts format if tibble is not specified
+        if (return_format == "tibble") {
+            stock_prices <- stock_prices %>%
+                as_tibble() %>%
+                rownames_to_column(var = "Date") %>%
+                mutate(Date = ymd(Date))
+        }
+        stock_prices <- mutate(stock_prices, symbol = symbol)
+        return(stock_prices)
+    }
+}
+
+```
+
+```{r}
+library(parallel)
+cl <- detectCores()
+if(cl > 2) {cl <- cl - 1 }
+cl
+```
+
+```{r}
+group <- rep(1:cl, length.out = nrow(sp_500))
+sp_500 <- bind_cols(tibble(group), sp_500)
+sp_500
+```
+```{r}
+cluster <- create_cluster(cores = cl)
+cluster
+```
+```{r}
+by_group <- sp_500 %>%
+    partition(group, cluster = cluster)
+by_group
+```
+```{r}
+from <- "2007-01-01"
+to   <- today()
+# Utilize pipe (%>%) to assign libraries, functions, and values to clusters
+by_group %>%
+    # Assign libraries
+    cluster_library("tidyverse") %>%
+    cluster_library("stringr") %>%
+    cluster_library("lubridate") %>%
+    cluster_library("quantmod") %>%
+    # Assign values (use this to load functions or data to each core)
+    cluster_assign_value("get_stock_prices", get_stock_prices) %>%
+    cluster_assign_value("from", from) %>%
+    cluster_assign_value("to", to)
+
+cluster_eval(by_group, search())[[1]] # results for first cluster shown only
+
+cluster_get(by_group, "get_stock_prices")[[1]] # results for first cluster shown only
+
+```
+
+```{r}
+start <- proc.time() # Start clock
+sp_500_processed_in_parallel <- by_group %>% # Use by_group party_df
+    mutate(
+        stock.prices = map(.x = symbol, 
+                           ~ get_stock_prices(symbol = .x,
+                                              return_format = "tibble",
+                                              from = from,
+                                              to   = to)
+                           )
+        ) %>%
+    collect() %>% # Special collect() function to recombine partitions
+    as_tibble()   # Convert to tibble
+time_elapsed_parallel <- proc.time() - start # End clock
+
+# sp_500_processed_in_parallel %>% unnest()
+sp_500_parallel_unnest <- bind_rows(sp_500_processed_in_parallel[[4]])
+
+time_elapsed_parallel
+
+```
+
+
