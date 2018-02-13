@@ -8,5 +8,7 @@
 *.rds       binary
 *.Rd        text
 *.Rdx       binary
-*.Rmd		text
-*.R  		text
+*.Rmd		    text
+*.R  		    text
+
+*.nb.html   linguist-vendored
