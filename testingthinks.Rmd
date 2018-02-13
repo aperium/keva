@@ -1,19 +1,156 @@
 ---
-title: "testing thinks"
+title: "Testing Thinks"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+# About R Markdown Notebooks
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+Try executing a chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+# Quantitative Stock Analysis Tutorial
+http://www.business-science.io/investments/2016/10/23/SP500_Analysis.html
 
-```{r}
-plot(cars)
+```{r setup}
+
+library(quantmod)   # get stock prices; useful stock analysis functions
+library(xts)        # working with extensible time series 
+library(rvest)      # web scraping
+library(tidyverse)  # ggplot2, purrr, dplyr, tidyr, readr, tibble
+library(stringr)    # working with strings
+library(forcats)    # working with factors
+library(lubridate)  # working with dates in tibbles / data frames
+library(plotly)     # Interactive plots
+library(corrplot)   # Visuazlize correlation plots
+library(magrittr)   # Because we like pipe operators
+
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+getSymbols("MA", from = "2007-01-01", to = "2016-10-23")
+MA %>% class()
+MA %>% str()
+MA %>% head()
+
+MA %>% Ad() %>% chartSeries()
+
+MA %>% chartSeries(TA='addBBands(); addBBands(draw="p"); addVo(); addMACD()', 
+                   subset='2016',
+                   theme="white"
+                  )
+
+MA %>%
+    Ad() %>%
+    dailyReturn(type = 'log') %>% 
+    head()
+```
+
+```{r}
+
+MA_log_returns <- MA %>%
+    Ad() %>%
+    dailyReturn(type = "log")
+names(MA_log_returns) <- "MA.Log.Returns"
+# Plot the log-returns    
+MA_log_returns %>%    
+    ggplot(aes(x = MA.Log.Returns)) + 
+    geom_histogram(bins = 100) + 
+    geom_density() +
+    geom_rug(alpha = 0.5) +
+    theme_bw()
+
+probs <- c(.005, .025, .25, .5, .75, .975, .995)
+dist_log_returns <- MA_log_returns %>% 
+    quantile(probs = probs, na.rm = TRUE)
+dist_log_returns
+
+mean_log_returns <- mean(MA_log_returns, na.rm = TRUE)
+sd_log_returns <- sd(MA_log_returns, na.rm = TRUE)
+
+mean_log_returns %>% exp()
+
+```
+
+```{r}
+# Single day random walk
+
+# Parameters
+N     <- 1000
+mu    <- mean_log_returns
+sigma <- sd_log_returns
+day <- 1:N
+price_init <- MA$MA.Adjusted[[nrow(MA$MA.Adjusted)]]
+# Simulate prices
+set.seed(386) 
+price  <- c(price_init, rep(NA, N-1))
+for(i in 2:N) {
+    price[i] <- price[i-1] * exp(rnorm(1, mu, sigma))
+}
+price_sim <- cbind(day, price) %>% 
+    as_tibble()
+# Visualize price simulation
+price_sim %>%
+    ggplot(aes(day, price)) +
+    geom_line() +
+    ggtitle(str_c("MA: Simulated Prices for ", N," Trading Days")) +
+    theme_bw()
+```
+
+```{r}
+# full year of trading with random walks (Monte Carlo)
+
+# Parameters
+N     <- 252 # Number of Stock Price Simulations
+M     <- 250  # Number of Monte Carlo Simulations   
+mu    <- mean_log_returns
+sigma <- sd_log_returns
+day <- 1:N
+price_init <- MA$MA.Adjusted[[nrow(MA$MA.Adjusted)]]
+# Simulate prices
+set.seed(123)
+monte_carlo_mat <- matrix(nrow = N, ncol = M)
+for (j in 1:M) {
+    monte_carlo_mat[[1, j]] <- price_init
+    for(i in 2:N) {
+        monte_carlo_mat[[i, j]] <- monte_carlo_mat[[i - 1, j]] * exp(rnorm(1, mu, sigma))
+    }
+}
+# Format and organize data frame
+price_sim <- cbind(day, monte_carlo_mat) %>%
+    as_tibble() 
+nm <- str_c("Sim.", seq(1, M))
+nm <- c("Day", nm)
+names(price_sim) <- nm
+price_sim <- price_sim %>%
+    gather(key = "Simulation", value = "Stock.Price", -(Day))
+# Visualize simulation
+price_sim %>%
+    ggplot(aes(x = Day, y = Stock.Price, Group = Simulation)) + 
+    geom_line(alpha = 0.1) +
+    ggtitle(str_c("MA: ", M, 
+                  " Monte Carlo Simulations for Prices Over ", N, 
+                  " Trading Days")) +
+    theme_bw()
+
+end_stock_prices <- price_sim %>% 
+    filter(Day == max(Day))
+probs <- c(.005, .025, .25, .5, .75, .975, .995)
+dist_end_stock_prices <- quantile(end_stock_prices$Stock.Price, probs = probs)
+dist_end_stock_prices %>% round(2)
+
+# Inputs
+N_hist          <- nrow(MA) / 252
+p_start_hist    <- MA$MA.Adjusted[[1]]
+p_end_hist      <- MA$MA.Adjusted[[nrow(MA)]]
+N_sim           <- N / 252
+p_start_sim     <- p_end_hist
+p_end_sim       <- dist_end_stock_prices[[4]]
+# CAGR calculations
+CAGR_historical <- (p_end_hist / p_start_hist) ^ (1 / N_hist) - 1
+CAGR_sim        <- (p_end_sim / p_start_sim) ^ (1 / N_sim) - 1
+CAGR_historical
+CAGR_sim
+```
 
