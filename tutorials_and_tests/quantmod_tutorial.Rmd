@@ -1,5 +1,5 @@
 ---
-title: "Testing Thinks"
+title: "Quantmod Tutorial"
 output: html_notebook
 ---
 
@@ -152,5 +152,9 @@ CAGR_historical <- (p_end_hist / p_start_hist) ^ (1 / N_hist) - 1
 CAGR_sim        <- (p_end_sim / p_start_sim) ^ (1 / N_sim) - 1
 CAGR_historical
 CAGR_sim
+```
+
+```{r}
+
 ```
 
