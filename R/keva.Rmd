@@ -9,7 +9,12 @@ output:
 
 # To Do
 
-- [ ] make a plan
+- [ ] I/O functions
+  - [ ] where/how best to pull data? `rest` or an api?
+  - [ ] how best to manage data? local storage of downloaded data?
+- [ ] Alogrithms
+  - [ ] retrieve plan from previous projects
+  - [ ] retrieve plan from Tim
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
@@ -219,4 +224,7 @@ name_match <- function(x,y) {
 
 ```
 
+```{r input}
+
+```
 
