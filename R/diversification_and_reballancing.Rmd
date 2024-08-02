@@ -82,9 +82,9 @@ view(apportionment)
 
 ```{r trades}
 
-init_posit <- tibble(id = c("abc","lmo","xyz"),
-                    value = c(234,644,456),
-                    rank = c(1,2,3))
+init_posit <- tibble(id = c("abc","lmo","xyz","lol"),
+                    value = c(234,644,456,848),
+                    rank = c(1,2,3,4))
 
 # positions <- positions |> arrange(rank)
 # total <- positions$value |> sum()
@@ -99,11 +99,24 @@ positions <- init_posit |>
   mutate(series = sapply(0:(nrow(init_posit)-1),\(x) (1-bins^(-1))^x),
          targ_prop = series/sum(series),
          targ_pos = sum(value) * targ_prop,
-         changes = value - targ_pos)
+         changes = targ_pos - value)
 
 # I want an algorithm that sorts by order of trades to make
 positions$changes
-# sells <- positions$changes |> filter()
+sells <- positions$changes |> keep(\(x) all(x<0)) |> sort()
+buys <- positions$changes |> keep(\(x) all(x>0)) |> sort(decreasing = TRUE)
+holds <- positions$changes |> keep(\(x) all(x==0))
+
+list <- numeric()
+n_i <- 1
+for(m in 1:length(buys)) {
+  for(n in n_i:length(sells)) {
+    n_1 <- n
+    if(buys[n] + sum(list) > 0) list <- c(list, sells[n])
+  }
+  list <- c(list,buys[m])
+}
+print(list)
 
 ```
 
