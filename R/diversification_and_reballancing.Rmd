@@ -1,0 +1,29 @@
+---
+title: An attempt at optimal allocation
+author: Daniel R. Williams ^[Director of Quality Control, Greenstreet Growers, Lothian,
+  MD] ^[PhD Candidate, Dept. of Ag. & Crop Science, Ohio State University, Columbus,  Ohio]
+date: 2 August 2024
+output:
+  html_notebook: default
+---
+
+
+```{r setup}
+# this block loads required packages and some custom functions. 
+
+cran_pacs <- c()
+dev_pacs <- c() 
+bioc_pacs <- c()
+py_pacs <- c()
+
+## function to quietly find list of packages
+find_package_quiet <- function(pkgs, ...) unlist(find.package(pkgs, quiet = TRUE, ...))
+
+# install pak
+if(!nzchar(find_package_quiet("pak"))) install.packages("pak")
+
+# install cran packs
+if (length(cran_pacs) > 0)
+
+```
+
