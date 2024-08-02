@@ -16,14 +16,19 @@ dev_pacs <- c()
 bioc_pacs <- c()
 py_pacs <- c()
 
-## function to quietly find list of packages
-find_package_quiet <- function(pkgs, ...) unlist(find.package(pkgs, quiet = TRUE, ...))
-
 # install pak
-if(!nzchar(find_package_quiet("pak"))) install.packages("pak")
+if(!nzchar(find.package("pak", quiet = TRUE))) install.packages("pak")
 
-# install cran packs
-if (length(cran_pacs) > 0)
+## function to quietly find list of packages
+# find_packages_quiet <- function(pkgs, ...) unlist(find.package(pkgs, quiet = TRUE, ...))
+# install_as_needed <- function(pacs, inst_fun = pak::pak, check_fun = find_packages_quiet, ...) {
+#   # inst_fun(setdiff(pacs,check_fun(pacs)),...)
+#   inst_fun(setdiff(pacs,names(unlist(sapply(pacs,\(x) check_fun(x))))),...)
+# }
+
+# install R pacs
+r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs) |> unique()
+if (length(r_pacs) > 0) pak::pak(r_pacs)
 
 ```
 
