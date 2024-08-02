@@ -101,6 +101,10 @@ positions <- init_posit |>
          targ_pos = sum(value) * targ_prop,
          changes = value - targ_pos)
 
+# I want an algorithm that sorts by order of trades to make
+positions$changes
+# sells <- positions$changes |> filter()
+
 ```
 
 
