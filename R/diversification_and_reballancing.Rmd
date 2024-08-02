@@ -11,7 +11,7 @@ output:
 ```{r setup}
 # this block loads required packages and some custom functions. 
 
-cran_pacs <- c()
+cran_pacs <- c("tidyverse","writexl")
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -19,16 +19,20 @@ py_pacs <- c()
 # install pak
 if(!nzchar(find.package("pak", quiet = TRUE))) install.packages("pak")
 
-## function to quietly find list of packages
-# find_packages_quiet <- function(pkgs, ...) unlist(find.package(pkgs, quiet = TRUE, ...))
-# install_as_needed <- function(pacs, inst_fun = pak::pak, check_fun = find_packages_quiet, ...) {
-#   # inst_fun(setdiff(pacs,check_fun(pacs)),...)
-#   inst_fun(setdiff(pacs,names(unlist(sapply(pacs,\(x) check_fun(x))))),...)
-# }
+# install and load R pacs
+r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs)
+if (length(r_pacs) > 0) {
+  r_pacs <- c("librarian",r_pacs) |> unique()
+  pak::pak(r_pacs)
+  librarian::shelf(r_pacs)
+}
 
-# install R pacs
-r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs) |> unique()
-if (length(r_pacs) > 0) pak::pak(r_pacs)
+# install python packs
+if (length(py_pacs)>0) {
+  if (!nzchar(find.package("reticulate", quiet = TRUE))) install.packages("reticulate", quiet = TRUE)
+  if (!reticulate::py_available(initialize = TRUE)) reticulate::install_python()
+  if (reticulate::py_available(initialize = TRUE)) reticulate::py_install(py_pacs)
+}
 
 ```
 
