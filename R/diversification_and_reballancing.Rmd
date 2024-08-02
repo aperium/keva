@@ -38,9 +38,69 @@ if (length(py_pacs)>0) {
 
 
 Attempting to find a good proportioning algorithm
-```{r}
-n <- 2
-for(i in 0:(n-1)) print((1-n^(-1))^i)
+```{r proportions, eval = false}
+n <- 6
+series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+dat <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+
+# n <- 2
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat1 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat2 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat3 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat4 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat5 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# 
+# ggplot(data = dat, aes(x = x, y = y)) +
+#   geom_line(data=dat1) +
+#   geom_line(data=dat2) +
+#   geom_line(data=dat3) +
+#   geom_line(data=dat4) +
+#   geom_line(data=dat5) +
+#   theme_minimal()
 
 ```
+
+```{r assignment, eval = FALSE}
+total <- 1000
+bins <- 22
+series <- sapply(0:(bins-1),\(x) (1-bins^(-1))^x)
+apportionment <- tibble(bin = 0:(bins-1),
+                        proportion = series/sum(series),
+                        value = proportion * total)
+view(apportionment)
+
+```
+
+```{r trades}
+
+init_posit <- tibble(id = c("abc","lmo","xyz"),
+                    value = c(234,644,456),
+                    rank = c(1,2,3))
+
+# positions <- positions |> arrange(rank)
+# total <- positions$value |> sum()
+# bins <- init_posit |> nrow()
+# series <- sapply(0:(bins-1),\(x) (1-bins^(-1))^x)
+# target_pos <- tibble(id = positions$id,
+#                      proportion = series/sum(series),
+#                      value = proportion * positions$value |> sum(),
+#                      rank = positions$rank)
+
+positions <- init_posit |>
+  mutate(series = sapply(0:(nrow(init_posit)-1),\(x) (1-bins^(-1))^x),
+         targ_prop = series/sum(series),
+         targ_pos = sum(value) * targ_prop,
+         changes = value - targ_pos)
+
+```
+
 
