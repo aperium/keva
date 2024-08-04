@@ -140,7 +140,7 @@ positions |> left_join(trade_order) |> arrange(order)
 ```{r calc}
 
 
-calc_trades <- function(positions, targets) {
+calc_trades <- function(positions, targets, change_lim = 0.01) {
   
   joined <- full_join(positions,targets)
   
@@ -156,9 +156,9 @@ calc_trades <- function(positions, targets) {
   
   # an algorithm that sorts by order of trades to make
   moneymarket <- joined |> filter(str_equal(id,"SPAXX")) |> pull(changes) |> unlist()
-  sells <- joined |> filter(!str_equal(id,"SPAXX"), changes < 0) |> pull(changes) |> unlist() |> sort()
-  buys <- joined |> filter(!str_equal(id,"SPAXX"), changes > 0) |> pull(changes) |> unlist() |> sort(decreasing = TRUE)
-  hold <- joined |> filter(!str_equal(id,"SPAXX"), changes == 0) |> pull(changes) |> unlist()
+  sells <- joined |> filter(!str_equal(id,"SPAXX"), changes < 0, abs(changes/value) >= change_lim) |> pull(changes) |> unlist() |> sort()
+  buys <- joined |> filter(!str_equal(id,"SPAXX"), changes > 0, abs(changes/value) >= change_lim) |> pull(changes) |> unlist() |> sort(decreasing = TRUE)
+  holds <- joined |> filter(!str_equal(id,"SPAXX"), (changes == 0 | abs(changes/value) < change_lim)) |> pull(changes) |> unlist() |> sort(decreasing = TRUE)
   
   # sells <- joined$changes |> keep(\(x) all(x<0)) |> sort()
   # buys <- joined$changes |> keep(\(x) all(x>0)) |> sort(decreasing = TRUE)
