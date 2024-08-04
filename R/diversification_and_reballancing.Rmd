@@ -11,7 +11,7 @@ output:
 ```{r setup}
 # this block loads required packages and some custom functions. 
 
-cran_pacs <- c("tidyverse","writexl")
+cran_pacs <- c("tidyverse","writexl","fs")
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -23,7 +23,7 @@ if(!nzchar(find.package("pak", quiet = TRUE))) install.packages("pak")
 r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs)
 if (length(r_pacs) > 0) {
   r_pacs <- c("librarian",r_pacs) |> unique()
-  pak::pak(r_pacs)
+  pak::pak(r_pacs, upgrade = FALSE)
   librarian::shelf(r_pacs)
 }
 
@@ -33,6 +33,17 @@ if (length(py_pacs)>0) {
   if (!reticulate::py_available(initialize = TRUE)) reticulate::install_python()
   if (reticulate::py_available(initialize = TRUE)) reticulate::py_install(py_pacs)
 }
+
+```
+
+```{r data}
+
+path <- "Dropbox (Personal)/Projects/investing" |> fs::path_home()
+
+account_ind <- path |> path("fidelity_individual_20240803.tsv") |> read_delim(delim = "\t")
+account_bda <- path |> path("fidelity_irabda_20240803.tsv") |> read_delim(delim = "\t")
+account_roth <- path |> path("fidelity_iraroth_20240803.tsv") |> read_delim(delim = "\t")
+targets <- path |> path("fidelity_targets_20240803.tsv") |> read_delim(delim = "\t")
 
 ```
 
@@ -80,7 +91,7 @@ view(apportionment)
 
 ```
 
-```{r trades}
+```{r trades, eval = false}
 
 init_posit <- tibble(id = c("abc","lmo","xyz","lol","brb"),
                     value = c(234,644,456,848,43),
@@ -126,4 +137,62 @@ positions |> left_join(trade_order) |> arrange(order)
 
 ```
 
+```{r calc}
+
+
+calc_trades <- function(positions, targets) {
+  
+  joined <- full_join(positions,targets)
+  
+  joined <- targets |>
+    arrange(rank) |>
+    mutate(series = sapply(0:(n()-1),\(x) (1-n()^(-1))^x), 
+           targ_prop = series/sum(series)) |>
+    full_join(positions) |>
+    mutate(across(where(is.numeric),\(x) if_else(is.na(x),0,x))) |>
+    mutate(targ_pos = sum(value) * targ_prop, 
+           changes = targ_pos - value)
+  
+  
+  # an algorithm that sorts by order of trades to make
+  sells <- joined$changes |> keep(\(x) all(x<0)) |> sort()
+  buys <- joined$changes |> keep(\(x) all(x>0)) |> sort(decreasing = TRUE)
+  holds <- joined$changes |> keep(\(x) all(x==0))
+  
+  list <- numeric()
+  n <- 1
+  for(m in 1:length(buys)) {
+    while((buys[m] + sum(list) > 0)&&(n<=length(sells))) {
+      list <- c(list,sells[n])
+      # print(list)
+      n <- n+1
+    }
+    list <- c(list,buys[m])
+    # print(list)
+  }
+  list <- c(list,holds)
+  trade_order <- tibble(changes = list, order = 1:length(list))
+  
+  joined |> 
+    left_join(trade_order) |> 
+    arrange(order)
+  
+  # return()
+  
+}
+
+
+calc_trades(account_roth,targets)
+
+
+
+
+
+
+
+
+
+
+
+```
 
