@@ -1,0 +1,191 @@
+---
+title: An attempt at optimal allocation
+author: Daniel R. Williams ^[Director of Quality Control, Greenstreet Growers, Lothian,
+  MD] ^[PhD Candidate, Dept. of Ag. & Crop Science, Ohio State University, Columbus,  Ohio]
+date: 2 August 2024
+output:
+  html_notebook: default
+---
+
+
+```{r setup}
+# this block loads required packages and some custom functions. 
+
+cran_pacs <- c("tidyverse","writexl","fs","stringr")
+dev_pacs <- c() 
+bioc_pacs <- c()
+py_pacs <- c()
+
+# install pak
+if(!nzchar(find.package("pak", quiet = TRUE))) install.packages("pak")
+
+# install and load R pacs
+r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs)
+if (length(r_pacs) > 0) {
+  r_pacs <- c("librarian",r_pacs) |> unique()
+  pak::pak(r_pacs, upgrade = FALSE)
+  librarian::shelf(r_pacs)
+}
+
+# install python packs
+if (length(py_pacs)>0) {
+  if (!nzchar(find.package("reticulate", quiet = TRUE))) install.packages("reticulate", quiet = TRUE)
+  if (!reticulate::py_available(initialize = TRUE)) reticulate::install_python()
+  if (reticulate::py_available(initialize = TRUE)) reticulate::py_install(py_pacs)
+}
+
+```
+
+```{r data}
+
+path <- "Dropbox (Personal)/Projects/investing" |> fs::path_home()
+
+account_ind <- path |> path("fidelity_individual_20240803.tsv") |> read_tsv(show_col_types = FALSE)
+account_bda <- path |> path("fidelity_irabda_20240803.tsv") |> read_tsv(show_col_types = FALSE)
+account_roth <- path |> path("fidelity_iraroth_20240803.tsv") |> read_tsv(show_col_types = FALSE)
+targets <- path |> path("fidelity_targets_20240803.tsv") |> read_tsv(show_col_types = FALSE)
+
+```
+
+
+Attempting to find a good proportioning algorithm
+```{r proportions, eval = false}
+n <- 6
+series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+dat <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+
+# n <- 2
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat1 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat2 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat3 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat4 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# n <- n+3
+# series <- sapply(0:(n-1),\(x) (1-n^(-1))^x)
+# dat5 <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
+# 
+# ggplot(data = dat, aes(x = x, y = y)) +
+#   geom_line(data=dat1) +
+#   geom_line(data=dat2) +
+#   geom_line(data=dat3) +
+#   geom_line(data=dat4) +
+#   geom_line(data=dat5) +
+#   theme_minimal()
+
+```
+
+```{r assignment, eval = FALSE}
+total <- 1000
+bins <- 22
+series <- sapply(0:(bins-1),\(x) (1-bins^(-1))^x)
+apportionment <- tibble(bin = 0:(bins-1),
+                        proportion = series/sum(series),
+                        value = proportion * total)
+view(apportionment)
+
+```
+
+```{r trades, eval = false}
+
+init_posit <- tibble(id = c("abc","lmo","xyz","lol","brb"),
+                    value = c(234,644,456,848,43),
+                    rank = c(1,2,3,4,5))
+
+# positions <- positions |> arrange(rank)
+# total <- positions$value |> sum()
+# bins <- init_posit |> nrow()
+# series <- sapply(0:(bins-1),\(x) (1-bins^(-1))^x)
+# target_pos <- tibble(id = positions$id,
+#                      proportion = series/sum(series),
+#                      value = proportion * positions$value |> sum(),
+#                      rank = positions$rank)
+
+
+positions <- init_posit |>
+  mutate(series = sapply(0:(n()-1),\(x) (1-n()^(-1))^x),
+         targ_prop = series/sum(series),
+         targ_pos = sum(value) * targ_prop,
+         changes = targ_pos - value)
+
+# I want an algorithm that sorts by order of trades to make
+# positions$changes
+sells <- positions$changes |> keep(\(x) all(x<0)) |> sort()
+buys <- positions$changes |> keep(\(x) all(x>0)) |> sort(decreasing = TRUE)
+holds <- positions$changes |> keep(\(x) all(x==0))
+
+list <- numeric()
+n <- 1
+for(m in 1:length(buys)) {
+  while((buys[m] + sum(list) > 0)&&(n<=length(sells))) {
+    list <- c(list,sells[n])
+    # print(list)
+    n <- n+1
+  }
+  list <- c(list,buys[m])
+  # print(list)
+}
+list <- c(list,holds)
+trade_order <- tibble(changes = list, order = 1:length(list))
+
+positions |> left_join(trade_order) |> arrange(order)
+
+```
+
+```{r calc}
+
+
+calc_trades <- function(positions, targets, change_lim = 0.01) {
+  
+  joined <- full_join(positions,targets)
+  
+  joined <- targets |>
+    arrange(rank) |>
+    mutate(series = sapply(0:(n()-1),\(x) (1-n()^(-1))^x), 
+           targ_prop = series/sum(series)) |>
+    full_join(positions) |>
+    mutate(across(where(is.numeric),\(x) if_else(is.na(x),0,x))) |>
+    mutate(targ_pos = sum(value) * targ_prop, 
+           changes = targ_pos - value)
+  
+  
+  # an algorithm that sorts by order of trades to make
+  moneymarket <- joined |> filter(str_equal(id,"SPAXX")) |> pull(changes) |> unlist()
+  sells <- joined |> filter(!str_equal(id,"SPAXX"), changes < 0, abs(changes/value) >= change_lim) |> pull(changes) |> unlist() |> sort()
+  buys <- joined |> filter(!str_equal(id,"SPAXX"), changes > 0, abs(changes/value) >= change_lim) |> pull(changes) |> unlist() |> sort(decreasing = TRUE)
+  holds <- joined |> filter(!str_equal(id,"SPAXX"), (changes == 0 | abs(changes/value) < change_lim)) |> pull(changes) |> unlist() |> sort(decreasing = TRUE)
+  
+  # sells <- joined$changes |> keep(\(x) all(x<0)) |> sort()
+  # buys <- joined$changes |> keep(\(x) all(x>0)) |> sort(decreasing = TRUE)
+  # holds <- joined$changes |> keep(\(x) all(x==0))
+  
+  list <- if(length(moneymarket) > 0) moneymarket else numeric()
+  n <- 1
+  for(m in 1:length(buys)) {
+    while((buys[m] + sum(list) > 0)&&(n<=length(sells))) {
+      list <- c(list,sells[n])
+      # print(list)
+      n <- n+1
+    }
+    list <- c(list,buys[m])
+    # print(list)
+  }
+  list <- c(list,holds)
+  trade_order <- tibble(changes = list, order = 1:length(list))
+  
+  joined |> 
+    left_join(trade_order) |> 
+    arrange(order)
+}
+
+trades_roth <- calc_trades(account_roth,targets)
+trades_bda <- calc_trades(account_bda,targets)
+trades_ind <- calc_trades(account_ind,targets)
+
+```
+
