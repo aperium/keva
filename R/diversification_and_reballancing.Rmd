@@ -17,7 +17,7 @@ bioc_pacs <- c()
 py_pacs <- c()
 
 # install pak
-if(!nzchar(find.package("pak", quiet = TRUE))) install.packages("pak")
+if(length(find.package("pak", quiet = TRUE))==0) install.packages("pak")
 
 # install and load R pacs
 r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs)
@@ -29,7 +29,7 @@ if (length(r_pacs) > 0) {
 
 # install python packs
 if (length(py_pacs)>0) {
-  if (!nzchar(find.package("reticulate", quiet = TRUE))) install.packages("reticulate", quiet = TRUE)
+  if (length(find.package("reticulate", quiet = TRUE))==0) install.packages("reticulate", quiet = TRUE)
   if (!reticulate::py_available(initialize = TRUE)) reticulate::install_python()
   if (reticulate::py_available(initialize = TRUE)) reticulate::py_install(py_pacs)
 }
