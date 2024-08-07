@@ -16,14 +16,16 @@ dev_pacs <- c()
 bioc_pacs <- c()
 py_pacs <- c()
 
-# install pak
-if(length(find.package("pak", quiet = TRUE))==0) install.packages("pak")
-
-# install and load R pacs
+# install and load R packages
 r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs)
+if (length(py_pacs) > 0) r_pacs <- c("reticulate",r_pacs)
+if (length(r_pacs) > 0) r_pacs <- c("librarian",r_pacs)
 if (length(r_pacs) > 0) {
-  r_pacs <- c("librarian",r_pacs) |> unique()
-  pak::pak(r_pacs, upgrade = FALSE)
+  # install pak
+  if(length(find.package("pak", quiet = TRUE))==0) install.packages("pak")
+  # install all other r packages
+  r_pacs |> unique() |> pak::pak(upgrade = TRUE)
+  # make sure everything is loaded
   librarian::shelf(r_pacs)
 }
 
@@ -147,10 +149,12 @@ calc_trades <- function(positions, targets, change_lim = 0.01) {
   joined <- targets |>
     arrange(rank) |>
     mutate(series = sapply(0:(n()-1),\(x) (1-n()^(-1))^x), 
-           targ_prop = series/sum(series)) |>
+           targ_prop = series/sum(series) * 0.95) |>
+    add_case(id = "SPAXX", targ_prop = 0.05) |>
     full_join(positions) |>
     mutate(across(where(is.numeric),\(x) if_else(is.na(x),0,x))) |>
-    mutate(targ_pos = sum(value) * targ_prop, 
+    mutate(targ_pos = sum(value) * targ_prop,
+           targ_pos = targ_pos |> round(2),
            changes = targ_pos - value)
   
   
