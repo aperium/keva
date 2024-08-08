@@ -16,25 +16,41 @@ dev_pacs <- c()
 bioc_pacs <- c()
 py_pacs <- c()
 
-# install and load R packages
-r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs)
-if (length(py_pacs) > 0) r_pacs <- c("reticulate",r_pacs)
-if (length(r_pacs) > 0) r_pacs <- c("librarian",r_pacs)
+# install installers
+if(length(find.package("pak", quiet = TRUE))==0) install.packages("pak")
+if(length(find.package("librarian", quiet = TRUE))==0) pak::pak("librarian")
+installer_pacs <- Filter(librarian::check_installed, c(if (length(bioc_pacs) > 0) "BiocManager", if (length(py_pacs) > 0) "reticulate"))
+if (length(installer_pacs) > 0) pak::pak(installer_pacs, upgrade = TRUE)
+
+# install and load R pacs
+r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs) |> unique()
 if (length(r_pacs) > 0) {
-  # install pak
-  if(length(find.package("pak", quiet = TRUE))==0) install.packages("pak")
-  # install all other r packages
-  r_pacs |> unique() |> pak::pak(upgrade = TRUE)
-  # make sure everything is loaded
+  pak::pak(r_pacs, upgrade = TRUE)
   librarian::shelf(r_pacs)
 }
 
 # install python packs
 if (length(py_pacs)>0) {
-  if (length(find.package("reticulate", quiet = TRUE))==0) install.packages("reticulate", quiet = TRUE)
   if (!reticulate::py_available(initialize = TRUE)) reticulate::install_python()
   if (reticulate::py_available(initialize = TRUE)) reticulate::py_install(py_pacs)
 }
+
+## register cores for foreach
+n_cores <- parallel::detectCores()
+# registerDoParallel(cores=n_cores)
+# stopImplicitCluster()
+
+# doParallel cluster
+if(!is_null(getDefaultCluster())) stopCluster(getDefaultCluster())
+makeCluster(n_cores-1) |> setDefaultCluster()
+registerDoParallel(getDefaultCluster())
+
+# dplyr cluster
+if(exists("dCluster")) rm(dCluster)
+dCluster <- new_cluster(n_cores-1)
+cluster_library_quiety <- purrr::quietly(cluster_library)
+# cluster_library_quiety(dCluster, loadedNamespaces())
+cluster_library_quiety(dCluster, librarian::check_attached())
 
 ```
 
