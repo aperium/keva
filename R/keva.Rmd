@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","rvest", "chromote", "lubridate","forcats", "purrr","multidplyr")
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl") #"rvest", "chromote", "httr2"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -59,3 +59,20 @@ cluster_library_quiety <- purrr::quietly(cluster_library)
 # cluster_library_quiety(dCluster, loadedNamespaces())
 cluster_library_quiety(dCluster, librarian::check_attached())
 ```
+
+```{r pullhistoricdata}
+
+path <- "Dropbox (Personal)/Projects/investing/historic data" |> fs::path_home()
+
+# "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
+
+famrx <- request("https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true") |>
+  req_perform()
+
+famrx$headers
+
+curl::curl_download("https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true", destfile = path(path,"famrx.csv"))
+
+
+```
+
