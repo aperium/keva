@@ -73,13 +73,17 @@ symbols <-  path(data_path,"fidelity_targets_20240803.tsv") |>
 
 baseURL <- "https://query1.finance.yahoo.com/v7/finance/download/"
 # symbols <- c("FAMRX","FXAIX")
-start_date <- "01-01-2010" |> dmy() |> as_integer()
-end_date <- now() |> round_date() |> as_integer()
+start_date <- "01-01-2010" |> dmy() |> as.integer()
+end_date <- now() |> round_date() |> as.integer()
 query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
 url_query <- str_c(baseURL,symbols |> str_to_lower(),query)
 file_dest <- path(hist_path, symbols |> str_c(".csv"))
 
 multi_download(url_query, file_dest)
+
+```
+
+```{r currentdata}
 
 
 
