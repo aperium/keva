@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl") #"rvest", "chromote", "httr2"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl") #"rvest", "chromote","httr2"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -85,7 +85,23 @@ multi_download(url_query, file_dest)
 
 ```{r currentdata}
 
+# "https://digital.fidelity.com/ftgw/digital/portfolio/positions"
 
+# account_nums <-  path(data_path,"fidelity_accountnums.tsv") |> 
+#   read_csv(show_col_types = FALSE) |>
+#   pull(`fidelity internal account number`)
+
+positions <- data_path |> 
+  dir_ls(regexp = "/Portfolio_Positions_.*\\.csv$") |>
+  as_tibble_col() |>
+  mutate(date = value |> str_extract(pattern = "(?<=/Portfolio_Positions_).*(?=\\.csv$)") |> mdy()) |>
+  slice_max(date) |>
+  pull(1) |>
+  read_csv(show_col_types = FALSE) |>
+  filter(!is.na(Symbol)) |>
+  mutate(across(`Last Price`:`Average Cost Basis`,\(x) str_remove_all(x,"[\\+$%]*") |> as.numeric()),
+         across(contains("Percent"),\(x) x/100),
+         Symbol = Symbol |> str_extract("[:alnum:]*"))
 
 ```
 
