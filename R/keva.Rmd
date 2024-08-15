@@ -184,9 +184,9 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 ```{r calctrades}
 
 positions |> 
-  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
+  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"roth ira" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`) |>
-  calc_trades(targets, cash_reserve = 0.01, max_change = 0.1, min_change = 0.005)
+  calc_trades(targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.005)
 
 ```
 
