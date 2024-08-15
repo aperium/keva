@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl") #"rvest", "chromote","httr2"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units") #"rvest", "chromote","httr2"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -32,7 +32,7 @@ if (length(installer_pacs) > 0) pak::pak(installer_pacs, upgrade = TRUE)
 # install and load R pacs
 r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs) |> unique()
 if (length(r_pacs) > 0) {
-  pak::pak(r_pacs, upgrade = TRUE)
+  pak::pak(r_pacs, upgrade = FALSE, ask = FALSE)
   librarian::shelf(r_pacs)
 }
 
@@ -60,6 +60,13 @@ cluster_library_quiety <- purrr::quietly(cluster_library)
 cluster_library_quiety(dCluster, librarian::check_attached())
 ```
 
+```{r utils}
+
+round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
+
+```
+
+
 ```{r pullhistoricdata}
 
 data_path <- "Dropbox (Personal)/Projects/investing" |> fs::path_home()
@@ -67,9 +74,9 @@ hist_path <- "Dropbox (Personal)/Projects/investing/historic data" |> fs::path_h
 
 # "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
 
-symbols <-  path(data_path,"fidelity_targets_20240803.tsv") |> 
+symbols <- path(data_path,"fidelity_targets_20240803.tsv") |> 
   read_tsv(show_col_types = FALSE) |>
-  pull(id)
+  pull(Symbol)
 
 baseURL <- "https://query1.finance.yahoo.com/v7/finance/download/"
 # symbols <- c("FAMRX","FXAIX")
@@ -79,11 +86,14 @@ query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=
 url_query <- str_c(baseURL,symbols |> str_to_lower(),query)
 file_dest <- path(hist_path, symbols |> str_c(".csv"))
 
-multi_download(url_query, file_dest)
+downloads_details <- multi_download(url_query, file_dest)
 
 ```
 
 ```{r currentdata}
+
+# install_unit(c("USD", "dollar"))
+
 
 # "https://digital.fidelity.com/ftgw/digital/portfolio/positions"
 
@@ -100,8 +110,85 @@ positions <- data_path |>
   read_csv(show_col_types = FALSE) |>
   filter(!is.na(Symbol)) |>
   mutate(across(`Last Price`:`Average Cost Basis`,\(x) str_remove_all(x,"[\\+$%]*") |> as.numeric()),
-         across(contains("Percent"),\(x) x/100),
-         Symbol = Symbol |> str_extract("[:alnum:]*"))
+         # across(contains("Percent"),\(x) x/100),
+         across(contains("Percent"),\(x) set_units(x,"%")),
+         # across(where(is.numeric)&!contains("Percent"),\(x) as_units(x, "USD")),
+         Symbol = Symbol |> str_extract("[:alnum:]*"),
+         across(c(`Account Number`, `Symbol`, `Type`), as_factor))
+
+
+targets <- data_path |> path("fidelity_targets_20240803.tsv") |> read_tsv(show_col_types = FALSE)
+
+accounts <- positions |> 
+  group_by(`Account Number`, `Account Name`) |>
+  summarise(`Current Value` = sum(`Current Value`))
 
 ```
+
+```{r calctradesfun}
+calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.001) {
+  
+  joined <- full_join(positions,targets)
+  
+  joined <- targets |>
+    arrange(rank) |>
+    mutate(series = sapply(0:(n()-1),\(x) (1-n()^(-1))^x), 
+           targ_prop = series/sum(series) * (1-cash_reserve)) |>
+    add_case(Symbol = "SPAXX", targ_prop = cash_reserve) |>
+    full_join(positions) |>
+    mutate(across(where(is.numeric),\(x) if_else(is.na(x),0,x))) |>
+    mutate(targ_pos = sum(value) * targ_prop,
+           targ_pos = targ_pos |> round(2),
+           changes0 = (targ_pos - value),
+           changes1 = if_else(abs(changes0)<sum(value)*min_change,0,changes0),
+           changes = pmin(abs(changes1),sum(value)*max_change)*(changes1/abs(changes1))) |>
+    select(-changes1)
+  
+  # an algorithm that sorts by order of trades to make
+  moneymarket <- joined |> filter(str_equal(Symbol,"SPAXX"))
+  buys <- joined |> 
+    filter(!str_equal(Symbol,"SPAXX"), changes > 0) |> 
+    # mutate(changes = pmin(sum(joined$value) * max_change, changes)) |>
+    arrange(desc(changes)) |>
+    # filter(cumany(sum(changes)-cumsum(changes) > sum(moneymarket$value)))
+    mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value), changes, pmax(0,sum(moneymarket$value)-cumsum(changes)+changes) |> pmin(changes)))
+  sells <- joined |> 
+    filter(!str_equal(Symbol,"SPAXX"), changes < 0) |>
+    # mutate(changes = pmax(-1 * sum(joined$value) * max_change, changes)) |> 
+    arrange(changes) |>
+    # filter(!cumall(-cumsum(changes) + sum(moneymarket$value) - sum(buys$changes) <= sum(moneymarket$targ_pos)))
+    mutate(changes = if_else(-cumsum(changes) < sum(moneymarket$targ_pos), changes, pmin(0,-sum(moneymarket$targ_pos)-cumsum(changes)+changes) |> pmax(changes)))
+  
+  # print(buys)
+  # print(sells)
+
+  trades <- buys |>
+    add_row(sells) |>
+    arrange(desc(abs(changes)))
+  
+  holds <- joined |> 
+    filter(not(Symbol %in% trades$Symbol),
+           !str_equal(Symbol, "SPAXX")) |>
+    mutate(changes = 0)
+  
+  prox <- add_row(trades, holds)
+  
+  moneymarket |> dplyr::rows_update(tibble(Symbol = "SPAXX", changes = -sum(prox$changes))) |>
+    add_row(prox, .before = 1) |>
+    mutate(new_est = value + changes)
+}
+```
+
+
+```{r calctrades}
+
+
+
+positions |> 
+  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"BDA" |> str_to_lower())]) |>
+  select(Symbol, value = `Current Value`) |>
+  calc_trades(targets, cash_reserve = 0.1, max_change = 0.1, min_change = 0.0005)
+
+```
+
 

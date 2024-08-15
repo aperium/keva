@@ -24,7 +24,7 @@ if (length(installer_pacs) > 0) pak::pak(installer_pacs, upgrade = TRUE)
 # install and load R pacs
 r_pacs <- c(cran_pacs,dev_pacs,bioc_pacs) |> unique()
 if (length(r_pacs) > 0) {
-  pak::pak(r_pacs, upgrade = TRUE)
+  pak::pak(r_pacs, upgrade = FALSE)
   librarian::shelf(r_pacs)
 }
 
@@ -99,8 +99,10 @@ dat <- tibble(x = 0:(n-1)/(n-1), y = series/sum(series))
 
 ```{r assignment, eval = FALSE}
 total <- 1000
-bins <- 22
+bins <- 7
 series <- sapply(0:(bins-1),\(x) (1-bins^(-1))^x)
+series <- sapply(1:(bins),\(x) ((bins-x+1)/(bins)))
+series <- sapply(1:(bins),\(x) ((x)/(bins-x+1)))
 apportionment <- tibble(bin = 0:(bins-1),
                         proportion = series/sum(series),
                         value = proportion * total)
