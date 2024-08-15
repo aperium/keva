@@ -126,7 +126,7 @@ accounts <- positions |>
 ```
 
 ```{r calctradesfun}
-calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.001) {
+calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.001, sell_buffer = 0.05) {
   
   joined <- full_join(positions,targets)
   
@@ -142,7 +142,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
            changes0 = (targ_pos - value),
            changes1 = if_else(abs(changes0)<sum(value)*min_change,0,changes0),
            changes = pmin(abs(changes1),sum(value)*max_change)*(changes1/abs(changes1))) |>
-    select(-changes1)
+    select(-changes0, -changes1)
   
   # an algorithm that sorts by order of trades to make
   moneymarket <- joined |> filter(str_equal(Symbol,"SPAXX"))
@@ -151,7 +151,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
     # mutate(changes = pmin(sum(joined$value) * max_change, changes)) |>
     arrange(desc(changes)) |>
     # filter(cumany(sum(changes)-cumsum(changes) > sum(moneymarket$value)))
-    mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value), changes, pmax(0,sum(moneymarket$value)-cumsum(changes)+changes) |> pmin(changes)))
+    mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value)*(1-sell_buffer), changes, pmax(0,sum(moneymarket$value)*(1-sell_buffer)-cumsum(changes)+changes) |> pmin(changes)))
   sells <- joined |> 
     filter(!str_equal(Symbol,"SPAXX"), changes < 0) |>
     # mutate(changes = pmax(-1 * sum(joined$value) * max_change, changes)) |> 
@@ -171,7 +171,8 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
            !str_equal(Symbol, "SPAXX")) |>
     mutate(changes = 0)
   
-  prox <- add_row(trades, holds)
+  prox <- add_row(trades, holds) |>
+    mutate(changes = changes |> round_any(1))
   
   moneymarket |> dplyr::rows_update(tibble(Symbol = "SPAXX", changes = -sum(prox$changes))) |>
     add_row(prox, .before = 1) |>
@@ -182,12 +183,10 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 
 ```{r calctrades}
 
-
-
 positions |> 
-  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"BDA" |> str_to_lower())]) |>
+  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`) |>
-  calc_trades(targets, cash_reserve = 0.1, max_change = 0.1, min_change = 0.0005)
+  calc_trades(targets, cash_reserve = 0.01, max_change = 0.1, min_change = 0.005)
 
 ```
 
