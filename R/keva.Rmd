@@ -66,29 +66,13 @@ round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
 
 ```
 
-
-```{r pullhistoricdata}
+```{r paths}
 
 data_path <- "Dropbox (Personal)/Projects/investing" |> fs::path_home()
 hist_path <- "Dropbox (Personal)/Projects/investing/historic data" |> fs::path_home()
 
-# "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
-
-symbols <- path(data_path,"fidelity_targets_20240803.tsv") |> 
-  read_tsv(show_col_types = FALSE) |>
-  pull(Symbol)
-
-baseURL <- "https://query1.finance.yahoo.com/v7/finance/download/"
-# symbols <- c("FAMRX","FXAIX")
-start_date <- "01-01-2010" |> dmy() |> as.integer()
-end_date <- now() |> round_date() |> as.integer()
-query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
-url_query <- str_c(baseURL,symbols |> str_to_lower(),query)
-file_dest <- path(hist_path, symbols |> str_c(".csv"))
-
-downloads_details <- multi_download(url_query, file_dest)
-
 ```
+
 
 ```{r currentdata}
 
@@ -117,11 +101,40 @@ positions <- data_path |>
          across(c(`Account Number`, `Symbol`, `Type`), as_factor))
 
 
-targets <- data_path |> path("fidelity_targets_20240803.tsv") |> read_tsv(show_col_types = FALSE)
+targets <- data_path |> 
+  path("fidelity_targets_20240803.tsv") |> 
+  read_tsv(show_col_types = FALSE) |>
+  mutate(across(c(`Symbol`), as_factor))
 
 accounts <- positions |> 
   group_by(`Account Number`, `Account Name`) |>
   summarise(`Current Value` = sum(`Current Value`))
+
+```
+
+```{r pullhistoricdata}
+
+# "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
+# symbols <- c(targets$Symbol, positions$Symbol) |> unique() |> keep(\(x) !str_equal(x,"SPAXX"))
+
+baseURL <- "https://query1.finance.yahoo.com/v7/finance/download/"
+start_date <- "01-01-2010" |> dmy() |> as.integer()
+end_date <- now() |> round_date() |> as.integer()
+query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
+
+download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Symbol)) |>
+  distinct() |>
+  filter(!str_equal(Symbol,"SPAXX")) |>
+  mutate(url_query = str_c(baseURL, Symbol |> str_to_lower(),query),
+         file_dest = path(hist_path, Symbol |> str_c(".csv")),
+         file_exists = file_dest |> file_exists(),
+         file_dest |> file_info(),
+         file_age = interval(modification_time, now()) |> as.duration())
+
+downloads_details <- download_paramaters |>
+  filter((!file_exists) | (file_age > dhours(8)))
+if(nrow(downloads_details) |> as.logical()) downloads_details %<>% mutate(multi_download(url_query, file_dest))
+
 
 ```
 
@@ -187,6 +200,8 @@ positions |>
   filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"roth ira" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`) |>
   calc_trades(targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.005)
+
+
 
 ```
 
