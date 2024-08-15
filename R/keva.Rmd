@@ -131,17 +131,20 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
          file_dest |> file_info(),
          file_age = interval(modification_time, now()) |> as.duration())
 
-downloads_details <- download_paramaters |>
+download_details <- download_paramaters |>
   filter((!file_exists) | (file_age > dhours(8)))
-if(nrow(downloads_details) |> as.logical()) downloads_details %<>% mutate(multi_download(url_query, file_dest))
+if(nrow(download_details) |> as.logical()) {
+  download_details %<>% mutate(multi_download(url_query, file_dest))
+  download_paramaters %<>% left_join(download_details, by = join_by(Symbol))
+  }
 
 
 ```
 
 ```{r calctradesfun}
-calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.001, sell_buffer = 0.05) {
+calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.001, sell_buffer = 0.05, transfer = 0) {
   
-  joined <- full_join(positions,targets)
+  # joined <- full_join(positions,targets)
   
   joined <- targets |>
     arrange(rank) |>
@@ -150,7 +153,8 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
     add_case(Symbol = "SPAXX", targ_prop = cash_reserve) |>
     full_join(positions) |>
     mutate(across(where(is.numeric),\(x) if_else(is.na(x),0,x))) |>
-    mutate(targ_pos = sum(value) * targ_prop,
+    mutate(value = value + if_else(str_equal(Symbol,"SPAXX"), transfer, 0),
+           targ_pos = sum(value) * targ_prop,
            targ_pos = targ_pos |> round(2),
            changes0 = (targ_pos - value),
            changes1 = if_else(abs(changes0)<sum(value)*min_change,0,changes0),
@@ -196,11 +200,13 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 
 ```{r calctrades}
 
-positions |> 
-  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"roth ira" |> str_to_lower())]) |>
+new_positions <- positions |> 
+  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`) |>
-  calc_trades(targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.005)
+  calc_trades(targets, cash_reserve = 0.05, max_change = 0.05, min_change = 0.005, transfer = 0) 
 
+# new_positions |> summarise(total = sum(new_est))
+new_positions
 
 
 ```
