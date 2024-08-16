@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units") #"rvest", "chromote","httr2"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "forecast") #"rvest", "chromote","httr2"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -230,7 +230,7 @@ hist |>
   # filter(str_equal(Symbol, "FSELX")) |>
   # filter(as.duration(interval(Date, max(Date))) <= ddays(90)) |>
 ggplot(aes(x = Date, y = apyDelta, color = Symbol, fill = Symbol)) +
-  geom_point(size = 1e0, alpha = 1) +
+  geom_point(size = 1e-4, alpha = 0.25) +
   geom_smooth(method = "loess", alpha = 0.25) +
   facet_wrap(vars(Symbol)) +
   theme_minimal() 
