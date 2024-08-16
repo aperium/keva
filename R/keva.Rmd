@@ -118,7 +118,7 @@ accounts <- positions |>
 # symbols <- c(targets$Symbol, positions$Symbol) |> unique() |> keep(\(x) !str_equal(x,"SPAXX"))
 
 baseURL <- "https://query1.finance.yahoo.com/v7/finance/download/"
-start_date <- "01-01-2010" |> dmy() |> as.integer()
+start_date <- "01-01-2010" |> dmy() |> as_datetime() |> as.integer()
 end_date <- now() |> round_date() |> as.integer()
 query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
 
@@ -211,4 +211,39 @@ new_positions
 
 ```
 
+```{r historictrends}
+  
+hist <- download_paramaters$path |> read_csv(id = "path", col_types = "Ddddddd") |>
+  na.omit() |>
+  left_join(download_paramaters |> select(Symbol, path)) |>
+  select(Symbol, !path) |>
+  group_by(Symbol) |>
+  mutate(Delta = `Adj Close` - lag(`Adj Close`, order_by = Date),
+         pDelta = Delta/lag(`Adj Close`, order_by = Date),
+         apyDelta = pDelta * dyears(1)/as.duration(interval(lag(Date, order_by = Date),Date))) |>
+  filter(!is.na(Delta))
+
+# FAMRX <- hist |> filter(str_equal(Symbol, "FAMRX"))
+# lm(apyDelta ~ Date, FAMRX) |> anova()
+
+hist |> 
+  # filter(str_equal(Symbol, "FSELX")) |>
+  # filter(as.duration(interval(Date, max(Date))) <= ddays(90)) |>
+ggplot(aes(x = Date, y = apyDelta, color = Symbol, fill = Symbol)) +
+  geom_point(size = 1e0, alpha = 1) +
+  geom_smooth(method = "loess", alpha = 0.25) +
+  facet_wrap(vars(Symbol)) +
+  theme_minimal() 
+  # theme(aspect.ratio = 1)
+
+hist |> 
+  # filter(str_equal(Symbol, "FAMRX")) |>
+  # filter(as.duration(interval(Date, max(Date))) <= ddays(30)) |>
+ggplot(aes(x = lag(apyDelta, order_by = apyDelta), y = apyDelta, color = Symbol, fill = Symbol)) +
+  geom_point(size = 1e0, alpha = 1) +
+  geom_smooth(method = "lm", alpha = 0.25) +
+  # facet_wrap(vars(Symbol)) +
+  theme_minimal()
+
+```
 
