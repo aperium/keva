@@ -64,6 +64,29 @@ cluster_library_quiety(dCluster, librarian::check_attached())
 
 round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
 
+lastTradingClose <- function(dt = now()) {
+  dt %<>% with_tz("America/New_York")
+  h <- dt |> hour()
+  beforeClosePenalty <- if_else(h < 16L, dhours(24-16+h), dhours(-16+h))
+  dt <- dt - beforeClosePenalty
+  wday <- dt |> wday(week_start = 1)
+  weekendPenalty <- if_else(wday > 5L, ddays(wday - 5L), ddays(0))
+  dt <- dt - weekendPenalty
+  dt |> update(hours = 16L, minutes = 0L, seconds = 0L, week_start = 1)
+}
+
+nextTradingClose <- function(dt = now()) {
+  dt %<>% with_tz("America/New_York")
+  h <- dt |> hour()
+  beforeCloseBoost <- if_else(h < 16L, dhours(16-h), dhours(24+16-h))
+  dt <- dt + beforeCloseBoost
+  wday <- dt |> wday(week_start = 1)
+  weekendBoost <- if_else(wday > 5L, ddays(8L - wday), ddays(0))
+  dt <- dt + weekendBoost
+  dt |> update(hours = 16L, minutes = 0L, seconds = 0L, week_start = 1)
+}
+
+
 ```
 
 ```{r paths}
