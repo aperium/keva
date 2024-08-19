@@ -156,7 +156,7 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
 
 download_details <- download_paramaters |>
   # filter((!file_exists) | (file_age > dhours(8)))
-  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(2)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(6))))
+  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))))
 if(nrow(download_details) |> as.logical()) {
   download_details %<>% mutate(multi_download(url_query, file_dest))
   download_paramaters %<>% left_join(download_details)
@@ -325,8 +325,9 @@ predictPriceSummary <- function(data, range, new) {
     model <- lm(`Adj Close` ~ Date, data = filter(data, str_equal(Symbol,s)))
     modelSummary <- model |> 
       broom::tidy() |> 
-      mutate(Symbol = s, .before = 1) |> 
-      filter(term == "Date")
+      # filter(term == "Date")
+      pivot_wider(names_from = "term", values_from = !term) |> 
+      mutate(Symbol = s, .before = 1)
     prediction <- model |> predict(newdata = tibble(Date = new))
     predictionSummary <- modelSummary |> 
       mutate(predictionDate = new,
@@ -336,17 +337,40 @@ predictPriceSummary <- function(data, range, new) {
     list_rbind()
 }
 
+# lm(`Adj Close` ~ Date, data = filter(hist2, str_equal(Symbol,"FDSVX"))) |> 
+#       broom::tidy() |> 
+#       mutate(Symbol = "FDSVX", .before = 1) |> 
+#       # filter(term == "Date")
+#       pivot_wider(names_from = "term", values_from = !term)
+
+
 longPred <- predictPriceSummary(hist2, dyears(1), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_long",recycle0 = TRUE), where(is.numeric))
 
-shortPred <- predictPriceSummary(hist2, ddays(1), nextTradingClose() |> as.Date()) |>
+shortPred <- predictPriceSummary(hist2, ddays(7), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_short",recycle0 = TRUE), where(is.numeric))
 
-full_join(longPred,shortPred) |>
-  select(Symbol, predictionDate, estimate_long, estimate_short, prediction_long, prediction_short) |>
-  mutate(opporotunity = (prediction_long - prediction_short)/prediction_long,
-         rank = rank(desc(opporotunity))) |>
-  arrange(rank)
+# full_join(longPred,shortPred) |>
+#   select(Symbol, predictionDate, estimate_long, estimate_short, prediction_long, prediction_short) |>
+#   mutate(opporotunity = (prediction_long - prediction_short)/prediction_long,
+#          rank = rank(desc(opporotunity))) |>
+#   arrange(rank)
+
+```
+
+```{r visualize}
+
+hist2 |> 
+  # filter(str_equal(Symbol,"FDSVX")) |>
+  filter(as.duration(interval(Date, max(Date))) <= dyears(.5)) |>
+  ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
+  geom_point(aes(y = `Adj Close`),size = 1e-0, alpha = 3/4) +
+  geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = longPred, shape = 24) +
+  geom_point(aes(x = predictionDate, y = prediction_short, fill = NULL), data = shortPred, shape = 25) +
+  geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = longPred, linetype = "longdash", alpha = 2/4) +
+  geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = shortPred, linetype = "dashed", alpha = 2/4) +
+  facet_wrap(vars(Symbol), scales = "free_y") +
+  theme_minimal() 
 
 ```
 
