@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "forecast") #"rvest", "chromote","httr2"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units") #"rvest", "chromote","httr2", "forecast"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -313,10 +313,10 @@ predictPriceSummary <- function(data, range, new) {
 }
 
 longPred <- predictPriceSummary(hist2, dyears(1), today() + ddays(1)) |>
-  rename_with(~ paste0(.x,"_long",recycle0 = TRUE), is.numeric)
+  rename_with(~ paste0(.x,"_long",recycle0 = TRUE), where(is.numeric))
 
 shortPred <- predictPriceSummary(hist2, ddays(1), today() + ddays(1)) |>
-  rename_with(~ paste0(.x,"_short",recycle0 = TRUE), is.numeric)
+  rename_with(~ paste0(.x,"_short",recycle0 = TRUE), where(is.numeric))
 
 full_join(longPred,shortPred) |>
   select(Symbol, predictionDate, estimate_long, estimate_short, prediction_long, prediction_short) |>
