@@ -135,7 +135,7 @@ download_details <- download_paramaters |>
   filter((!file_exists) | (file_age > dhours(8)))
 if(nrow(download_details) |> as.logical()) {
   download_details %<>% mutate(multi_download(url_query, file_dest))
-  download_paramaters %<>% left_join(download_details, by = join_by(Symbol))
+  download_paramaters %<>% left_join(download_details)
   }
 
 
@@ -203,7 +203,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 new_positions <- positions |> 
   filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`) |>
-  calc_trades(targets, cash_reserve = 0.05, max_change = 0.05, min_change = 0.005, transfer = 0) 
+  calc_trades(targets, cash_reserve = 0.1*2/3, max_change = 0.1, min_change = 0.005, transfer = 0) 
 
 # new_positions |> summarise(total = sum(new_est))
 new_positions
@@ -220,18 +220,26 @@ hist <- download_paramaters$path |> read_csv(id = "path", col_types = "Ddddddd")
   group_by(Symbol) |>
   mutate(Delta = `Adj Close` - lag(`Adj Close`, order_by = Date),
          pDelta = Delta/lag(`Adj Close`, order_by = Date),
-         apyDelta = pDelta * dyears(1)/as.duration(interval(lag(Date, order_by = Date),Date))) |>
+         apyDelta = pDelta * dyears(1)/as.duration(interval(lag(Date, order_by = Date),Date)),
+         dNow = apyDelta - last(apyDelta, order_by = `Date`)) |>
+  arrange(desc(Date)) |>
+  mutate(meanNagoAPYdelta = cummean(apyDelta)) |>
   filter(!is.na(Delta))
+
+hist |>
+  filter(as.duration(interval(Date, max(Date))) <= dyears(3)) |>
+  summarise(mean(apyDelta),
+            last(apyDelta, order_by = Date))
 
 # FAMRX <- hist |> filter(str_equal(Symbol, "FAMRX"))
 # lm(apyDelta ~ Date, FAMRX) |> anova()
 
 hist |> 
   # filter(str_equal(Symbol, "FSELX")) |>
-  # filter(as.duration(interval(Date, max(Date))) <= ddays(90)) |>
-ggplot(aes(x = Date, y = apyDelta, color = Symbol, fill = Symbol)) +
-  geom_point(size = 1e-4, alpha = 0.25) +
-  geom_smooth(method = "loess", alpha = 0.25) +
+  filter(as.duration(interval(Date, max(Date))) <= dyears(3)) |>
+ggplot(aes(x = Date, y = meanNagoAPYdelta, color = Symbol, fill = Symbol)) +
+  geom_point(size = 1e-4, alpha = 3/4) +
+  geom_smooth(method = "lm", alpha = 0.25) +
   facet_wrap(vars(Symbol)) +
   theme_minimal() 
   # theme(aspect.ratio = 1)
@@ -239,11 +247,83 @@ ggplot(aes(x = Date, y = apyDelta, color = Symbol, fill = Symbol)) +
 hist |> 
   # filter(str_equal(Symbol, "FAMRX")) |>
   # filter(as.duration(interval(Date, max(Date))) <= ddays(30)) |>
-ggplot(aes(x = lag(apyDelta, order_by = apyDelta), y = apyDelta, color = Symbol, fill = Symbol)) +
+ggplot(aes(x = lag(apyDelta, n=1L, order_by = apyDelta), y = apyDelta, color = Symbol, fill = Symbol)) +
   geom_point(size = 1e0, alpha = 1) +
   geom_smooth(method = "lm", alpha = 0.25) +
   # facet_wrap(vars(Symbol)) +
   theme_minimal()
 
 ```
+
+
+```{r forecasting2}
+  
+hist2 <- download_paramaters$path |> read_csv(id = "path", col_types = "Ddddddd") |>
+  na.omit() |>
+  left_join(download_paramaters |> select(Symbol, path)) |>
+  select(Symbol, !path) |>
+  filter(!is.na(`Adj Close`)) |>
+  group_by(Symbol)
+  
+
+# 
+# hist2 %>% 
+#   # filter(as.duration(interval(Date, max(Date))) <= dyears(1)) %>%
+#   group_by(Symbol) %>%
+#   summarise(lastObs = last(Date, order_by = Date),
+#             lastClose = last(`Adj Close`, order_by = Date),
+#             preditionDate = today(),
+#             prediction = lm(`Adj Close` ~ Date + Symbol, data = .) |> predict(newdata = tibble(Date = preditionDate, Symbol) |> distinct()),
+#             deviationFromPrediction = (lastClose - prediction)/prediction)
+
+
+## TODO modify to calculate a long tern prediction and a short term predication. The short term may be based on 1 or a few days of data where the long term may be based on months or years. Basic idea is to make decisions by comparing the long and short term predications.
+
+# test <- sapply(hist2$Symbol |> unique(), data = hist2, trunkateAt = dyears(1), predDate = today(), \(s,data,trunkateAt,predDate) {
+#   data %<>% filter(as.duration(interval(Date, max(Date))) <= trunkateAt)
+#   model <- lm(`Adj Close` ~ Date, data = filter(data, str_equal(Symbol,s)))
+#   modelSummary <- model |> 
+#     broom::tidy() |> 
+#     mutate(Symbol = s, .before = 1) |> 
+#     filter(term == "Date")
+#   prediction <- model |> predict(newdata = tibble(Date = predDate))
+#   predictionSummary <- modelSummary |> 
+#     mutate(predictionDate = predDate,
+#            prediction = prediction)
+#   predictionSummary
+#   }, simplify = F) |>
+#   list_rbind()
+  
+
+predictPriceSummary <- function(data, range, new) {
+  sapply(data$Symbol |> unique(), data = data, range = range, new = new, \(s,data,range,new) {
+    data %<>% filter(as.duration(interval(Date, max(Date))) <= range)
+    model <- lm(`Adj Close` ~ Date, data = filter(data, str_equal(Symbol,s)))
+    modelSummary <- model |> 
+      broom::tidy() |> 
+      mutate(Symbol = s, .before = 1) |> 
+      filter(term == "Date")
+    prediction <- model |> predict(newdata = tibble(Date = new))
+    predictionSummary <- modelSummary |> 
+      mutate(predictionDate = new,
+             prediction = prediction)
+    predictionSummary
+    }, simplify = F) |>
+    list_rbind()
+}
+
+longPred <- predictPriceSummary(hist2, dyears(1), today() + ddays(1)) |>
+  rename_with(~ paste0(.x,"_long",recycle0 = TRUE), is.numeric)
+
+shortPred <- predictPriceSummary(hist2, ddays(1), today() + ddays(1)) |>
+  rename_with(~ paste0(.x,"_short",recycle0 = TRUE), is.numeric)
+
+full_join(longPred,shortPred) |>
+  select(Symbol, predictionDate, estimate_long, estimate_short, prediction_long, prediction_short) |>
+  mutate(opporotunity = (prediction_long - prediction_short)/prediction_long,
+         rank = rank(desc(opporotunity))) |>
+  arrange(rank)
+
+```
+
 
