@@ -155,7 +155,8 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
          file_age = interval(modification_time, now()) |> as.duration())
 
 download_details <- download_paramaters |>
-  filter((!file_exists) | (file_age > dhours(8)))
+  # filter((!file_exists) | (file_age > dhours(8)))
+  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(2)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(6))))
 if(nrow(download_details) |> as.logical()) {
   download_details %<>% mutate(multi_download(url_query, file_dest))
   download_paramaters %<>% left_join(download_details)
@@ -335,10 +336,10 @@ predictPriceSummary <- function(data, range, new) {
     list_rbind()
 }
 
-longPred <- predictPriceSummary(hist2, dyears(1), today() + ddays(1)) |>
+longPred <- predictPriceSummary(hist2, dyears(1), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_long",recycle0 = TRUE), where(is.numeric))
 
-shortPred <- predictPriceSummary(hist2, ddays(1), today() + ddays(1)) |>
+shortPred <- predictPriceSummary(hist2, ddays(1), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_short",recycle0 = TRUE), where(is.numeric))
 
 full_join(longPred,shortPred) |>
