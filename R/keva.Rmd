@@ -146,6 +146,7 @@ end_date <- now() |> round_date() |> as.integer()
 query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
 
 download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Symbol)) |>
+  add_row(Symbol = "NFTY") |>
   distinct() |>
   filter(!str_equal(Symbol,"SPAXX")) |>
   mutate(url_query = str_c(baseURL, Symbol |> str_to_lower(),query),
@@ -362,7 +363,7 @@ shortPred <- predictPriceSummary(hist2, ddays(7), nextTradingClose() |> as.Date(
 
 hist2 |> 
   # filter(str_equal(Symbol,"FDSVX")) |>
-  filter(as.duration(interval(Date, max(Date))) <= dyears(.5)) |>
+  filter(as.duration(interval(Date, max(Date))) <= dyears(1/12)) |>
   ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
   geom_point(aes(y = `Adj Close`),size = 1e-0, alpha = 3/4) +
   geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = longPred, shape = 24) +
