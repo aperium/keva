@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units") #"rvest", "chromote","httr2", "forecast"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl") #"rvest", "chromote","httr2", "forecast"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -63,6 +63,8 @@ cluster_library_quiety(dCluster, librarian::check_attached())
 ```{r utils}
 
 round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
+
+read_xlsxs <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_xlsx(path[i],...)
 
 lastTradingClose <- function(dt = now()) {
   dt %<>% with_tz("America/New_York")
@@ -135,7 +137,7 @@ accounts <- positions |>
 
 ```
 
-```{r pullhistoricdata}
+```{r downloadhistoricdata}
 
 # "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
 # symbols <- c(targets$Symbol, positions$Symbol) |> unique() |> keep(\(x) !str_equal(x,"SPAXX"))
@@ -145,8 +147,20 @@ start_date <- "01-01-2010" |> dmy() |> as_datetime() |> as.integer()
 end_date <- now() |> round_date() |> as.integer()
 query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
 
+other_symbols <- data_path |> 
+  dir_ls(regexp = "Download_Results.*xlsx") |>
+  read_xlsxs() |>
+  filter(!is.na(`YTD (Daily)`)) |>
+  distinct() |>
+  mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
+  select("Symbol")
+
+manual_symbols = c("NFTY") |> 
+  as_tibble_col("Symbol")
+
 download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Symbol)) |>
-  add_row(Symbol = "NFTY") |>
+  add_row(manual_symbols) |>
+  add_row(other_symbols) |>
   distinct() |>
   filter(!str_equal(Symbol,"SPAXX")) |>
   mutate(url_query = str_c(baseURL, Symbol |> str_to_lower(),query),
@@ -157,7 +171,7 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
 
 download_details <- download_paramaters |>
   # filter((!file_exists) | (file_age > dhours(8)))
-  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))))
+  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
 if(nrow(download_details) |> as.logical()) {
   download_details %<>% mutate(multi_download(url_query, file_dest))
   download_paramaters %<>% left_join(download_details)
@@ -319,8 +333,8 @@ hist2 <- download_paramaters$path |> read_csv(id = "path", col_types = "Ddddddd"
 #   }, simplify = F) |>
 #   list_rbind()
   
-
-predictPriceSummary <- function(data, range, new) {
+# single core
+predictPriceSummary_s <- function(data, range, new) {
   sapply(data$Symbol |> unique(), data = data, range = range, new = new, \(s,data,range,new) {
     data %<>% filter(as.duration(interval(Date, max(Date))) <= range)
     model <- lm(`Adj Close` ~ Date, data = filter(data, str_equal(Symbol,s)))
@@ -337,6 +351,27 @@ predictPriceSummary <- function(data, range, new) {
     }, simplify = F) |>
     list_rbind()
 }
+
+# multi-core
+predictPriceSummary_p <- function(data, range, new) {
+  parSapply(cl = getDefaultCluster(), data$Symbol |> unique(), data = data, range = range, new = new, FUN = \(s,data,range,new) {
+    data <- data |> dplyr::filter(lubridate::as.duration(lubridate::interval(Date, max(Date))) <= range)
+    model <- lm(`Adj Close` ~ Date, data = dplyr::filter(data, stringr::str_equal(Symbol,s)))
+    modelSummary <- model |> 
+      broom::tidy() |> 
+      # filter(term == "Date")
+      tidyr::pivot_wider(names_from = "term", values_from = !term) |> 
+      dplyr::mutate(Symbol = s, .before = 1)
+    prediction <- model |> predict(newdata = tibble::tibble(Date = new))
+    predictionSummary <- modelSummary |> 
+      dplyr::mutate(predictionDate = new,
+             prediction = prediction)
+    predictionSummary
+    }, simplify = F) |>
+    list_rbind()
+}
+
+predictPriceSummary <- function(data, range, new) if(length(unique(data$Symbol))*range/ddays(1) < 100) predictPriceSummary_s(data, range, new) else predictPriceSummary_p(data, range, new)
 
 # lm(`Adj Close` ~ Date, data = filter(hist2, str_equal(Symbol,"FDSVX"))) |> 
 #       broom::tidy() |> 
@@ -371,7 +406,8 @@ hist2 |>
   geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = longPred, linetype = "longdash", alpha = 2/4) +
   geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = shortPred, linetype = "dashed", alpha = 2/4) +
   facet_wrap(vars(Symbol), scales = "free_y") +
-  theme_minimal() 
+  theme_minimal() +
+  theme(legend.position="none")
 
 ```
 
