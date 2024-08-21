@@ -422,7 +422,7 @@ tsize <- 20/((oppoPred_t12$Symbol |> unique() |> length())^(.2))
 psize <- tsize / 5e1
 hist2 |> 
   filter(Symbol %in% (oppoPred_t12 |> pull(Symbol))) |>
-  filter(as.duration(interval(Date, max(Date))) <= dyears(5)) |>
+  filter(as.duration(interval(Date, max(Date))) <= dyears(.5)) |>
   ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
   geom_point(aes(y = `Adj Close`),size = psize, alpha = 3/4) +
   geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = oppoPred_t12, shape = 24) +
