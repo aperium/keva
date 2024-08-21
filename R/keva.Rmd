@@ -123,13 +123,13 @@ positions <- data_path |>
          across(contains("Percent"),\(x) set_units(x,"%")),
          # across(where(is.numeric)&!contains("Percent"),\(x) as_units(x, "USD")),
          Symbol = Symbol |> str_extract("[:alnum:]*"),
-         across(c(`Account Number`, `Symbol`, `Type`), as_factor))
+         across(c(`Account Number`, `Symbol`, `Type`), as.factor))
 
 
 targets <- data_path |> 
   path("fidelity_targets_20240803.tsv") |> 
   read_tsv(show_col_types = FALSE) |>
-  mutate(across(c(`Symbol`), as_factor))
+  mutate(across(c(`Symbol`), as.factor))
 
 accounts <- positions |> 
   group_by(`Account Number`, `Account Name`) |>
@@ -380,34 +380,59 @@ predictPriceSummary <- function(data, range, new) if(length(unique(data$Symbol))
 #       pivot_wider(names_from = "term", values_from = !term)
 
 
-longPred <- predictPriceSummary(hist2, dyears(1), nextTradingClose() |> as.Date()) |>
+longPred <- predictPriceSummary(hist2, dyears(.5), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_long",recycle0 = TRUE), where(is.numeric))
 
 shortPred <- predictPriceSummary(hist2, ddays(7), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_short",recycle0 = TRUE), where(is.numeric))
 
-# full_join(longPred,shortPred) |>
-#   select(Symbol, predictionDate, estimate_long, estimate_short, prediction_long, prediction_short) |>
-#   mutate(opporotunity = (prediction_long - prediction_short)/prediction_long,
-#          rank = rank(desc(opporotunity))) |>
-#   arrange(rank)
+oppoPred <- full_join(longPred,shortPred) |>
+  select(Symbol, predictionDate, prediction_long, prediction_short, starts_with("estimate")) |>
+  mutate(opporotunity = (prediction_long - prediction_short)/prediction_long,
+         rank = rank(desc(opporotunity)),
+         Symbol = as.factor(Symbol),
+         .after = 1) |>
+  arrange(rank)
 
 ```
 
 ```{r visualize}
 
+# size <- 10*10^-((hist2$Symbol |> unique() |> length()) ^-1.5)
+tsize <- 20/((hist2$Symbol |> unique() |> length())^(.2))
+psize <- tsize / 5e1
+
 hist2 |> 
   # filter(str_equal(Symbol,"FDSVX")) |>
   filter(as.duration(interval(Date, max(Date))) <= dyears(1/12)) |>
   ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
-  geom_point(aes(y = `Adj Close`),size = 1e-0, alpha = 3/4) +
-  geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = longPred, shape = 24) +
-  geom_point(aes(x = predictionDate, y = prediction_short, fill = NULL), data = shortPred, shape = 25) +
-  geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = longPred, linetype = "longdash", alpha = 2/4) +
-  geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = shortPred, linetype = "dashed", alpha = 2/4) +
+  geom_point(aes(y = `Adj Close`),size = psize, alpha = 3/4) +
+  geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = oppoPred, shape = 24) +
+  geom_point(aes(x = predictionDate, y = prediction_short, fill = NULL), data = oppoPred, shape = 25) +
+  geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = oppoPred, linetype = "longdash", alpha = 2/4) +
+  geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = oppoPred, linetype = "dashed", alpha = 2/4) +
   facet_wrap(vars(Symbol), scales = "free_y") +
   theme_minimal() +
-  theme(legend.position="none")
+  # ggpubr::clean_theme() +
+  theme(legend.position="none", text = element_text(size = tsize))
+
+
+oppoPred_t12 <- oppoPred |> filter(rank <= 12)
+tsize <- 20/((oppoPred_t12$Symbol |> unique() |> length())^(.2))
+psize <- tsize / 5e1
+hist2 |> 
+  filter(Symbol %in% (oppoPred_t12 |> pull(Symbol))) |>
+  filter(as.duration(interval(Date, max(Date))) <= dyears(5)) |>
+  ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
+  geom_point(aes(y = `Adj Close`),size = psize, alpha = 3/4) +
+  geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = oppoPred_t12, shape = 24) +
+  geom_point(aes(x = predictionDate, y = prediction_short, fill = NULL), data = oppoPred_t12, shape = 25) +
+  geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = oppoPred_t12, linetype = "longdash", alpha = 2/4) +
+  geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = oppoPred_t12, linetype = "dashed", alpha = 2/4) +
+  facet_wrap(vars(Symbol), scales = "free_y") +
+  theme_minimal() +
+  # ggpubr::clean_theme() +
+  theme(legend.position="none", text = element_text(size = tsize))
 
 ```
 
