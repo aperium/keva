@@ -399,22 +399,21 @@ oppoPred <- full_join(longPred,shortPred) |>
 ```{r visualize}
 
 # size <- 10*10^-((hist2$Symbol |> unique() |> length()) ^-1.5)
-tsize <- 20/((hist2$Symbol |> unique() |> length())^(.2))
-psize <- tsize / 5e1
-
-hist2 |> 
-  # filter(str_equal(Symbol,"FDSVX")) |>
-  filter(as.duration(interval(Date, max(Date))) <= dyears(1/12)) |>
-  ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
-  geom_point(aes(y = `Adj Close`),size = psize, alpha = 3/4) +
-  geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = oppoPred, shape = 24) +
-  geom_point(aes(x = predictionDate, y = prediction_short, fill = NULL), data = oppoPred, shape = 25) +
-  geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = oppoPred, linetype = "longdash", alpha = 2/4) +
-  geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = oppoPred, linetype = "dashed", alpha = 2/4) +
-  facet_wrap(vars(Symbol), scales = "free_y") +
-  theme_minimal() +
-  # ggpubr::clean_theme() +
-  theme(legend.position="none", text = element_text(size = tsize))
+# tsize <- 20/((hist2$Symbol |> unique() |> length())^(.2))
+# psize <- tsize / 5e1
+# hist2 |> 
+#   # filter(str_equal(Symbol,"FDSVX")) |>
+#   filter(as.duration(interval(Date, max(Date))) <= dyears(1/12)) |>
+#   ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
+#   geom_point(aes(y = `Adj Close`),size = psize, alpha = 3/4) +
+#   geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = oppoPred, shape = 24) +
+#   geom_point(aes(x = predictionDate, y = prediction_short, fill = NULL), data = oppoPred, shape = 25) +
+#   geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = oppoPred, linetype = "longdash", alpha = 2/4) +
+#   geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = oppoPred, linetype = "dashed", alpha = 2/4) +
+#   facet_wrap(vars(Symbol), scales = "free_y") +
+#   theme_minimal() +
+#   # ggpubr::clean_theme() +
+#   theme(legend.position="none", text = element_text(size = tsize))
 
 
 oppoPred_t12 <- oppoPred |> filter(rank <= 12)
