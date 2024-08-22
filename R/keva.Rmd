@@ -88,6 +88,17 @@ nextTradingClose <- function(dt = now()) {
   dt |> update(hours = 16L, minutes = 0L, seconds = 0L, week_start = 1)
 }
 
+## from a curl http download, turn the headers list into a tibble
+http_headers_to_columns_single <- function(headers_line) {
+  headers_line |>
+    str_squish() |>
+    str_split("((?<=HTTP/2)[:space:])|(:[:space:])") |> 
+    list_transpose() |> 
+    as.data.frame(col.names = c("name","value")) |> 
+    pivot_wider(names_from = name)
+}
+# the vectorized version
+http_headers_to_columns <- function(headers) {headers |> sapply(headers_to_columns_single, simplify = F) |> list_rbind()}
 
 ```
 
@@ -148,7 +159,7 @@ end_date <- now() |> round_date() |> as.integer()
 query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
 
 other_symbols <- data_path |> 
-  dir_ls(regexp = "Download_Results.*xlsx") |>
+  dir_ls(regexp = "[\\/]Download_Results.*xlsx") |>
   read_xlsxs() |>
   filter(!is.na(`YTD (Daily)`)) |>
   distinct() |>
@@ -169,13 +180,31 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
          file_dest |> file_info(),
          file_age = interval(modification_time, now()) |> as.duration())
 
+
+## This mess downloads data that needs updated. AND if any files fail, it re-tries with wait times between the attempts. 
+slow_multi_download <- slowly(multi_download, rate_backoff())
 download_details <- download_paramaters |>
   # filter((!file_exists) | (file_age > dhours(8)))
   filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
 if(nrow(download_details) |> as.logical()) {
-  download_details %<>% mutate(multi_download(url_query, file_dest))
+  download_details %<>% mutate(slow_multi_download(url_query, file_dest),
+                               headers |> http_headers_to_columns())
+  # Retry with wait times
+  errors <- download_details |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
+  while(errors |> nrow() > 0) {
+    errors %<>% mutate(slow_multi_download(url_query, file_dest),
+                       headers |> http_headers_to_columns())
+    rows_update(download_details, errors)
+    errors %<>% errors |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
+  }
   download_paramaters %<>% left_join(download_details)
   }
+
+
+
+# 
+# download_details$headers |> http_headers_to_columns() |>
+#   filter(!str_detect(`HTTP/2`, "2[:number:]{2}")) |> nrow()
 
 
 ```
@@ -301,10 +330,19 @@ hist2 <- download_paramaters$path |> read_csv(id = "path", col_types = "Ddddddd"
   na.omit() |>
   left_join(download_paramaters |> select(Symbol, path)) |>
   select(Symbol, !path) |>
-  filter(!is.na(`Adj Close`)) |>
-  group_by(Symbol)
+  filter(!is.na(`Adj Close`))
   
+hist2 %<>% add_row(
+  tibble(Symbol = "SPAXX",
+       Date = unique(hist2$Date),
+       Open = 1,
+       High = 1,
+       Low = 1,
+       Close = 1,
+       `Adj Close` = 1,
+       Volume = 0))
 
+hist2 %<>% group_by(Symbol)
 # 
 # hist2 %>% 
 #   # filter(as.duration(interval(Date, max(Date))) <= dyears(1)) %>%
@@ -380,18 +418,25 @@ predictPriceSummary <- function(data, range, new) if(length(unique(data$Symbol))
 #       pivot_wider(names_from = "term", values_from = !term)
 
 
-longPred <- predictPriceSummary(hist2, dyears(.5), nextTradingClose() |> as.Date()) |>
+longPred <- predictPriceSummary(hist2, dyears(2), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_long",recycle0 = TRUE), where(is.numeric))
+
+midPred <- predictPriceSummary(hist2, dyears(.25), nextTradingClose() |> as.Date()) |>
+  rename_with(~ paste0(.x,"_mid",recycle0 = TRUE), where(is.numeric))
 
 shortPred <- predictPriceSummary(hist2, ddays(7), nextTradingClose() |> as.Date()) |>
   rename_with(~ paste0(.x,"_short",recycle0 = TRUE), where(is.numeric))
 
-oppoPred <- full_join(longPred,shortPred) |>
-  select(Symbol, predictionDate, prediction_long, prediction_short, starts_with("estimate")) |>
-  mutate(opporotunity = (prediction_long - prediction_short)/prediction_long,
+oppoPred <- full_join(longPred, midPred) |> full_join(shortPred) |>
+  select(Symbol, predictionDate, starts_with("prediction_"), starts_with("estimate")) |>
+  mutate(longOpporotunity = (prediction_long - prediction_short)/prediction_long,
+         midOpporotunity = (prediction_mid - prediction_short)/prediction_mid,
+         opporotunity = (longOpporotunity + midOpporotunity)/2,
          rank = rank(desc(opporotunity)),
+         across(ends_with("pporotunity"),\(x) round_any(x, 10^round_any(log10(.0001/prediction_long),1))),
          Symbol = as.factor(Symbol),
          .after = 1) |>
+  # mutate(round_tunity = round_any(opporotunity, 10^round_any(log10(.01/prediction_long),1))) |>
   arrange(rank)
 
 ```
@@ -421,13 +466,15 @@ tsize <- 20/((oppoPred_t12$Symbol |> unique() |> length())^(.2))
 psize <- tsize / 5e1
 hist2 |> 
   filter(Symbol %in% (oppoPred_t12 |> pull(Symbol))) |>
-  filter(as.duration(interval(Date, max(Date))) <= dyears(.5)) |>
+  filter(as.duration(interval(Date, max(Date))) <= dyears(1)) |>
   ggplot(aes(x = Date, color = Symbol, fill = Symbol)) +
   geom_point(aes(y = `Adj Close`),size = psize, alpha = 3/4) +
   geom_point(aes(x = predictionDate, y = prediction_long, fill = NULL), data = oppoPred_t12, shape = 24) +
+  geom_point(aes(x = predictionDate, y = prediction_mid, fill = NULL), data = oppoPred_t12, shape = 23) +
   geom_point(aes(x = predictionDate, y = prediction_short, fill = NULL), data = oppoPred_t12, shape = 25) +
   geom_abline(aes(slope = estimate_Date_long, intercept = `estimate_(Intercept)_long`, color = Symbol, fill = Symbol), data = oppoPred_t12, linetype = "longdash", alpha = 2/4) +
-  geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = oppoPred_t12, linetype = "dashed", alpha = 2/4) +
+  geom_abline(aes(slope = estimate_Date_mid, intercept = `estimate_(Intercept)_mid`, color = Symbol, fill = Symbol), data = oppoPred_t12, linetype = "dashed", alpha = 2/4) +
+  geom_abline(aes(slope = estimate_Date_short, intercept = `estimate_(Intercept)_short`, color = Symbol, fill = Symbol), data = oppoPred_t12, linetype = "dotted", alpha = 2/4) +
   facet_wrap(vars(Symbol), scales = "free_y") +
   theme_minimal() +
   # ggpubr::clean_theme() +
