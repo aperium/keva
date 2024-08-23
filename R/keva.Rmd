@@ -499,7 +499,8 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
   buyPotentials <- joined |> 
     filter(opporotunity >= 0) |>
     slice_max(order_by = opporotunity, n=maxBuys) |>
-    mutate(proportion = rescale(opporotunity, to = c(0, sum(opporotunity)), range = c(0, max(opporotunity))),
+    mutate(proportion_1 = rescale(opporotunity, to = c(0, 1), range = c(0, max(opporotunity))),
+           proportion = proportion_1/sum(proportion_1),
            buy = proportion * pull(filter(joined,str_equal(Symbol,"SPAXX")),value) * (1-sell_buffer))
   
   sellPotentials <- joined |>
