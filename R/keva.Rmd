@@ -489,7 +489,7 @@ hist2 |>
 # targets is tibble with symbols and target distributions
 
 
-calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05) {
+calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05, maxBuys = 2) {
   
   # joined <- full_join(positions,targets)
   
@@ -498,7 +498,7 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
   
   buyPotentials <- joined |> 
     filter(opporotunity >= 0) |>
-    slice_max(order_by = opporotunity, n=3) |>
+    slice_max(order_by = opporotunity, n=maxBuys) |>
     mutate(proportion = rescale(opporotunity, to = c(0, sum(opporotunity)), range = c(0, max(opporotunity))),
            buy = proportion * pull(filter(joined,str_equal(Symbol,"SPAXX")),value) * (1-sell_buffer))
   
@@ -507,7 +507,7 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
     # filter(!str_equal(Symbol,"SPAXX")) |>
     mutate(relativeOpp = opporotunity - min(buyPotentials$opporotunity)) |>
     filter(relativeOpp <= 0) |>
-    mutate(proportion_1 = rescale(relativeOpp, to = c(1,0)),
+    mutate(proportion_1 = value * rescale(relativeOpp, to = c(1,0)),
            proportion = proportion_1/sum(proportion_1),
            sell = proportion * sum(joined$value)*cash_reserve)
   
@@ -517,7 +517,8 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
   out <- full_join(positions2, trades) |>
     mutate(across(where(is.numeric), as.double),
            across(where(is.numeric), \(x) if_else(is.na(x), 0, x)),
-           estNew = if_else(!str_equal(Symbol,"SPAXX"),value - sell + buy,value - sum(buy) + sum(sell)))
+           estNew = if_else(!str_equal(Symbol,"SPAXX"),value - sell + buy,value - sum(buy) + sum(sell))) |>
+    arrange(desc(buy),desc(sell))
   out
 }
 
@@ -527,7 +528,7 @@ positions2 <- positions |>
 
 opporotunities <- oppoPred |> select(Symbol, opporotunity)
 
-calc_trades_2(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05)
+trades <- calc_trades_2(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05, maxBuys = 2)
 
 ```
 
