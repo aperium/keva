@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl") #"rvest", "chromote","httr2", "forecast"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl", "datawizard") #"rvest", "chromote","httr2", "forecast"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -98,7 +98,7 @@ http_headers_to_columns_single <- function(headers_line) {
     pivot_wider(names_from = name)
 }
 # the vectorized version
-http_headers_to_columns <- function(headers) {headers |> sapply(headers_to_columns_single, simplify = F) |> list_rbind()}
+http_headers_to_columns <- function(headers) {headers |> sapply(http_headers_to_columns_single, simplify = F) |> list_rbind()}
 
 ```
 
@@ -482,4 +482,52 @@ hist2 |>
 
 ```
 
+```{r calctradesfun2}
+
+##
+# positions is tibble as downloaded from fidelity
+# targets is tibble with symbols and target distributions
+
+
+calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05) {
+  
+  # joined <- full_join(positions,targets)
+  
+  joined <- full_join(positions2, opporotunities) |>
+    mutate(value = if_else(is.na(value), 0, value))
+  
+  buyPotentials <- joined |> 
+    filter(opporotunity >= 0) |>
+    slice_max(order_by = opporotunity, n=3) |>
+    mutate(proportion = rescale(opporotunity, to = c(0, sum(opporotunity)), range = c(0, max(opporotunity))),
+           buy = proportion * pull(filter(joined,str_equal(Symbol,"SPAXX")),value) * (1-sell_buffer))
+  
+  sellPotentials <- joined |>
+    filter(value > 0) |>
+    # filter(!str_equal(Symbol,"SPAXX")) |>
+    mutate(relativeOpp = opporotunity - min(buyPotentials$opporotunity)) |>
+    filter(relativeOpp <= 0) |>
+    mutate(proportion_1 = rescale(relativeOpp, to = c(1,0)),
+           proportion = proportion_1/sum(proportion_1),
+           sell = proportion * sum(joined$value)*cash_reserve)
+  
+  trades <- full_join(sellPotentials |> select(Symbol, sell),
+                      buyPotentials |> select(Symbol, buy))
+  
+  out <- full_join(positions2, trades) |>
+    mutate(across(where(is.numeric), as.double),
+           across(where(is.numeric), \(x) if_else(is.na(x), 0, x)),
+           estNew = if_else(!str_equal(Symbol,"SPAXX"),value - sell + buy,value - sum(buy) + sum(sell)))
+  out
+}
+
+positions2 <- positions |> 
+  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
+  select(Symbol, value = `Current Value`)
+
+opporotunities <- oppoPred |> select(Symbol, opporotunity)
+
+calc_trades_2(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05)
+
+```
 
