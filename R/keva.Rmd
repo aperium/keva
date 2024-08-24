@@ -517,14 +517,17 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
   
   out <- full_join(positions2, trades) |>
     mutate(across(where(is.numeric), as.double),
-           across(where(is.numeric), \(x) if_else(is.na(x), 0, x)),
+           across(where(is.numeric), \(x) if_else(is.na(x), 0, x |> round_any(1))),
            estNew = if_else(!str_equal(Symbol,"SPAXX"),value - sell + buy,value - sum(buy) + sum(sell))) |>
     arrange(desc(buy),desc(sell))
   out
+  
+  ## TODO re-add any with current value that may have been omitted from the trades table. 
+  
 }
 
 positions2 <- positions |> 
-  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
+  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"ind" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`)
 
 opporotunities <- oppoPred |> select(Symbol, opporotunity)
