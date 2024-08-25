@@ -65,6 +65,7 @@ cluster_library_quiety(dCluster, librarian::check_attached())
 round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
 
 read_xlsxs <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_xlsx(path[i],...)
+read_excels <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_excel(path[i],...)
 
 lastTradingClose <- function(dt = now()) {
   dt %<>% with_tz("America/New_York")
@@ -128,7 +129,8 @@ positions <- data_path |>
   slice_max(date) |>
   pull(1) |>
   read_csv(show_col_types = FALSE) |>
-  filter(!is.na(Symbol)) |>
+  filter(!is.na(Symbol),
+         !str_detect(Symbol, "Pending")) |>
   mutate(across(`Last Price`:`Average Cost Basis`,\(x) str_remove_all(x,"[\\+$%]*") |> as.numeric()),
          # across(contains("Percent"),\(x) x/100),
          across(contains("Percent"),\(x) set_units(x,"%")),
@@ -158,12 +160,20 @@ start_date <- "01-01-2010" |> dmy() |> as_datetime() |> as.integer()
 end_date <- now() |> round_date() |> as.integer()
 query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
 
-other_symbols <- data_path |> 
-  dir_ls(regexp = "[\\/]Download_Results.*xlsx") |>
-  read_xlsxs() |>
+mutualFund_symbols <- data_path |> 
+  dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> 
+  read_excels() |>
   filter(!is.na(`YTD (Daily)`)) |>
   distinct() |>
   mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
+  select("Symbol")
+
+other_symbols <- data_path |> 
+  dir_ls(regexp = "[\\/]screener_results.*xls$") |>
+  read_excels() |>
+  filter(!is.na(`Market Price`)) |>
+  distinct() |>
+  # mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
   select("Symbol")
 
 manual_symbols = c("NFTY") |> 
@@ -171,6 +181,7 @@ manual_symbols = c("NFTY") |>
 
 download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Symbol)) |>
   add_row(manual_symbols) |>
+  add_row(mutualFund_symbols) |>
   add_row(other_symbols) |>
   distinct() |>
   filter(!str_equal(Symbol,"SPAXX")) |>
@@ -182,7 +193,7 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
 
 
 ## This mess downloads data that needs updated. AND if any files fail, it re-tries with wait times between the attempts. 
-slow_multi_download <- slowly(multi_download, rate_backoff())
+slow_multi_download <- slowly(multi_download, rate_backoff(max_times = 5))
 download_details <- download_paramaters |>
   # filter((!file_exists) | (file_age > dhours(8)))
   filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
@@ -192,10 +203,10 @@ if(nrow(download_details) |> as.logical()) {
   # Retry with wait times
   errors <- download_details |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
   while(errors |> nrow() > 0) {
-    errors %<>% mutate(slow_multi_download(url_query, file_dest),
+    errors <- errors |> mutate(slow_multi_download(url_query, file_dest),
                        headers |> http_headers_to_columns())
     rows_update(download_details, errors)
-    errors %<>% errors |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
+    errors <- errors |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
   }
   download_paramaters %<>% left_join(download_details)
   }
@@ -444,6 +455,7 @@ oppoPred <- full_join(longPred, midPred) |> full_join(shortPred) |>
 ```{r visualize}
 
 # size <- 10*10^-((hist2$Symbol |> unique() |> length()) ^-1.5)
+
 # tsize <- 20/((hist2$Symbol |> unique() |> length())^(.2))
 # psize <- tsize / 5e1
 # hist2 |> 
@@ -504,13 +516,37 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
            buy = proportion * pull(filter(joined,str_equal(Symbol,"SPAXX")),value) * (1-sell_buffer))
   
   sellPotentials <- joined |>
-    filter(value > 0) |>
-    # filter(!str_equal(Symbol,"SPAXX")) |>
+    filter(value > 0,
+           !str_equal(Symbol,"SPAXX")) |>
     mutate(relativeOpp = opporotunity - min(buyPotentials$opporotunity)) |>
+    arrange(relativeOpp) |>
     filter(relativeOpp <= 0) |>
-    mutate(proportion_1 = value * rescale(relativeOpp, to = c(1,0)),
+    # mutate(proportion_1 = value * rescale(relativeOpp, to = c(1,0)),
+    #        proportion = proportion_1/sum(proportion_1),
+    #        sell = proportion * sum(joined$value)*cash_reserve)
+    mutate(proportion_1 = rescale(relativeOpp, to = c(1,0)),
            proportion = proportion_1/sum(proportion_1),
-           sell = proportion * sum(joined$value)*cash_reserve)
+           sell = 0)
+           # sell_0 = pmin(value,cumsum(proportion)*sum(joined$value)*cash_reserve))
+           # sell_0 = proportion * sum(joined$value)*cash_reserve,
+           # sell_1 = pmin(value,sell_0),
+           # underage = sell_0-sell_1)
+    # rowwise() |>
+    # mutate(sell_0 = 0,
+    #        sell_0 = cumsum(proportion)*sum(joined$value)*cash_reserve - cumsum(sell_0),
+    #        sell_2 = min(value,proportion*sum(joined$value)*cash_reserve),
+    #        underage = cumsum(proportion)*sum(joined$value)*cash_reserve - cumsum(sell_2),
+    #        sell_3 = sell_2 + lag(underage))
+    # mutate(sell_a = pmin(value, cumsum(proportion)*sum(joined$value)*cash_reserve),
+    #        sell_b = sell_a - lag((sell_a), default = 0),
+    #        sell_c = 0)
+  
+while(sum(sellPotentials$sell) < min(sum(joined$value)*cash_reserve)) {
+  sellPotentials |>
+    mutate()
+}
+  
+  sum(joined$value)*cash_reserve-sellPotentials$sell |> sum()
   
   trades <- full_join(sellPotentials |> select(Symbol, sell),
                       buyPotentials |> select(Symbol, buy))
@@ -527,12 +563,13 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
 }
 
 positions2 <- positions |> 
-  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"ind" |> str_to_lower())]) |>
-  select(Symbol, value = `Current Value`)
+  filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
+  select(Symbol, value = `Current Value`) |>
+  rows_update(tibble_row(Symbol = "FPHAX", value = 200))
 
 opporotunities <- oppoPred |> select(Symbol, opporotunity)
 
-trades <- calc_trades_2(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05, maxBuys = 2)
+trades <- calc_trades_2(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05, maxBuys = 4)
 
 ```
 
