@@ -2,7 +2,7 @@
 title: An attempt at optimal allocation minimizing optorunity costs
 author: Daniel R. Williams ^[Director of Quality Control, Greenstreet Growers, Lothian,
   MD] ^[PhD Candidate, Dept. of Ag. & Crop Science, Ohio State University, Columbus,  Ohio]
-date: 7 Aug 2024
+date: 26 Aug 2024
 output:
   html_notebook: default
 ---
@@ -73,9 +73,6 @@ read_excels <- function(path, trim_at_blank_line = TRUE, ...) {
     else readxl::read_excel(path[i],...)
   }
 }
-  
-  
-    
 
 lastTradingClose <- function(dt = now()) {
   dt %<>% with_tz("America/New_York")
