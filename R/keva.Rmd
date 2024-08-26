@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl", "datawizard", "quantmod", "xts", "zoo", "TTR", "tidyquant") #"rvest", "chromote","httr2", "forecast"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl", "datawizard", "sjmisc", "quantmod", "xts", "zoo", "TTR", "tidyquant") #"rvest", "chromote","httr2", "forecast"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -64,8 +64,11 @@ cluster_library_quiety(dCluster, librarian::check_attached())
 
 round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
 
-read_xlsxs <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_xlsx(path[i],...)
-read_excels <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_excel(path[i],...)
+# read_xlsxs <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_xlsx(path[i],...)
+read_excels <- function(path, trim_at_blank_line = TRUE,  ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl", export = c(trim_at_blank_line,...)) %do% {
+  read_excel(path[i],...) %>%
+    if_else(trim_at_blank_line == TRUE, filter(., if_all(everything(),\(x) cumany(sjmisc::is_empty(x)))), .)
+  }
 
 lastTradingClose <- function(dt = now()) {
   dt %<>% with_tz("America/New_York")
@@ -162,16 +165,16 @@ query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=
 
 mutualFund_symbols <- data_path |> 
   dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> 
-  read_excels() |>
-  filter(!is.na(`YTD (Daily)`)) |>
+  read_excels(col_types = "text") |>
+  filter(!sjmisc::is_empty(`YTD (Daily)`)) |>
   distinct() |>
   mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
   select("Symbol")
 
 other_symbols <- data_path |> 
   dir_ls(regexp = "[\\/]screener_results.*xls$") |>
-  read_excels() |>
-  filter(!is.na(`Market Price`)) |>
+  read_excels(col_types = "text") |>
+  filter(!sjmisc::is_empty(`Market Price`)) |>
   distinct() |>
   # mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
   select("Symbol")
@@ -541,6 +544,8 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
     #        sell_b = sell_a - lag((sell_a), default = 0),
     #        sell_c = 0)
   
+  
+  ## TODO Fix
 while(sum(sellPotentials$sell) < min(sum(joined$value)*cash_reserve)) {
   sellPotentials |>
     mutate()
