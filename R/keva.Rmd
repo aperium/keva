@@ -43,18 +43,20 @@ if (length(py_pacs)>0) {
 }
 
 ## register cores for foreach/doParallel
-n_cores <- parallel::detectCores()
+n_cores <- case_match(.Platform$OS.type,
+                      "windows" ~ (parallel::detectCores() * 5/9) |> round(),
+                      .default = parallel::detectCores() - 1)
 # registerDoParallel(cores=n_cores)
 # stopImplicitCluster()
 
 # doParallel cluster
 if(!is_null(getDefaultCluster())) stopCluster(getDefaultCluster())
-makeCluster(n_cores-1) |> setDefaultCluster()
+makeCluster(n_cores) |> setDefaultCluster()
 registerDoParallel(getDefaultCluster())
 
 # dplyr cluster
 if(exists("dCluster")) rm(dCluster)
-dCluster <- new_cluster(n_cores-1)
+dCluster <- new_cluster(n_cores)
 cluster_library_quiety <- purrr::quietly(cluster_library)
 # cluster_library_quiety(dCluster, loadedNamespaces())
 cluster_library_quiety(dCluster, librarian::check_attached())
@@ -66,7 +68,7 @@ round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
 
 # read_xlsxs <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_xlsx(path[i],...)
 read_excels <- function(path, trim_at_blank_line = TRUE, ...) {
-  foreach(i=1:length(path), .combine = "rbind", .verbose = T, .errorhandling = "pass") %do% {
+  foreach(i=1:length(path), .combine = "rbind", .verbose = F, .errorhandling = "pass") %do% {
     if(trim_at_blank_line) readxl::read_excel(path[i],...) |> filter(dplyr::cumall(!dplyr::if_all(dplyr::everything(), is.na)))
     else readxl::read_excel(path[i],...)
   }
@@ -208,7 +210,7 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
 
 
 ## This mess downloads data that needs updated. AND if any files fail, it re-tries with wait times between the attempts. 
-slow_multi_download <- slowly(multi_download, rate_backoff(max_times = 5))
+slow_multi_download <- slowly(multi_download, rate_backoff(pause_base = 10, max_times = 5))
 download_details <- download_paramaters |>
   # filter((!file_exists) | (file_age > dhours(8)))
   filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
@@ -220,7 +222,7 @@ if(nrow(download_details) |> as.logical()) {
   while(errors |> nrow() > 0) {
     errors <- errors |> mutate(slow_multi_download(url_query, file_dest),
                        headers |> http_headers_to_columns())
-    rows_update(download_details, errors)
+    download_details <- rows_update(download_details, errors)
     errors <- errors |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
   }
   download_paramaters %<>% left_join(download_details)
@@ -292,7 +294,9 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 ```
 
 
-```{r calctrades}
+```{r calctrades, eval=FALSE}
+
+## broken since I updated the fun
 
 new_positions <- positions |> 
   filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
