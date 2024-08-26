@@ -65,10 +65,15 @@ cluster_library_quiety(dCluster, librarian::check_attached())
 round_any = function(x, accuracy, f=round){f(x/accuracy) * accuracy}
 
 # read_xlsxs <- function(path, ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl") %do% read_xlsx(path[i],...)
-read_excels <- function(path, trim_at_blank_line = TRUE,  ...) foreach(i=1:length(path), .combine = add_case, .packages = "readxl", export = c(trim_at_blank_line,...)) %do% {
-  read_excel(path[i],...) %>%
-    if_else(trim_at_blank_line == TRUE, filter(., if_all(everything(),\(x) cumany(sjmisc::is_empty(x)))), .)
+read_excels <- function(path, trim_at_blank_line = TRUE, ...) {
+  foreach(i=1:length(path), .combine = "rbind", .verbose = T, .errorhandling = "pass") %do% {
+    if(trim_at_blank_line) readxl::read_excel(path[i],...) |> filter(dplyr::cumall(!dplyr::if_all(dplyr::everything(), is.na)))
+    else readxl::read_excel(path[i],...)
   }
+}
+  
+  
+    
 
 lastTradingClose <- function(dt = now()) {
   dt %<>% with_tz("America/New_York")
@@ -164,7 +169,7 @@ end_date <- now() |> round_date() |> as.integer()
 query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
 
 mutualFund_symbols <- data_path |> 
-  dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> 
+  dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> as.character() |>
   read_excels(col_types = "text") |>
   filter(!sjmisc::is_empty(`YTD (Daily)`)) |>
   distinct() |>
@@ -178,6 +183,13 @@ other_symbols <- data_path |>
   distinct() |>
   # mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
   select("Symbol")
+
+# test <- data_path |>
+#   dir_ls(regexp = "[\\/]screener_results.*xls$") |>
+#   first() |>
+#   read_excels(col_types = "text") |>
+#   filter(cumall(!if_all(everything(), \(x) is.na(x))))
+
 
 manual_symbols = c("NFTY") |> 
   as_tibble_col("Symbol")
