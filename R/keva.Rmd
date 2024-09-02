@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl", "datawizard", "sjmisc", "quantmod", "xts", "zoo", "TTR", "tidyquant") #"rvest", "chromote","httr2", "forecast"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl", "datawizard", "sjmisc", "quantmod", "xts", "zoo", "TTR", "tidyquant") #, "rvest", "chromote","httr2", "forecast"
 dev_pacs <- c() 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -157,6 +157,17 @@ accounts <- positions |>
 
 ```
 
+
+```{r positionsScrape, eval = FALSE}
+
+login_url <- "https://digital.fidelity.com/prgw/digital/login/full-page"
+portfolio_url <- "https://digital.fidelity.com/ftgw/digital/portfolio/positions"
+
+
+```
+
+
+
 ```{r downloadhistoricdata}
 
 # "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
@@ -212,13 +223,13 @@ download_details <- download_paramaters |>
   # filter((!file_exists) | (file_age > dhours(8)))
   filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
 if(nrow(download_details) |> as.logical()) {
-  download_details %<>% mutate(slow_multi_download(url_query, file_dest),
-                               headers |> http_headers_to_columns())
+    download_details %<>% mutate(slow_multi_download(url_query, file_dest))
+    download_details %<>% mutate(headers |> http_headers_to_columns())
   # Retry with wait times
   errors <- download_details |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
   while(errors |> nrow() > 0) {
-    errors <- errors |> mutate(slow_multi_download(url_query, file_dest),
-                       headers |> http_headers_to_columns())
+    errors <- errors |> mutate(slow_multi_download(url_query, file_dest))
+    errors <- errors |> mutate(headers |> http_headers_to_columns())
     download_details <- rows_update(download_details, errors)
     errors <- errors |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
   }
@@ -351,7 +362,7 @@ ggplot(aes(x = lag(apyDelta, n=1L, order_by = apyDelta), y = apyDelta, color = S
 ```
 
 
-```{r forecasting2}
+```{r forecasting2, eval=FALSE}
   
 hist2 <- download_paramaters$path |> read_csv(id = "path", col_types = "Ddddddd") |>
   na.omit() |>
@@ -468,7 +479,7 @@ oppoPred <- full_join(longPred, midPred) |> full_join(shortPred) |>
 
 ```
 
-```{r visualize}
+```{r visualize, eval=FALSE}
 
 # size <- 10*10^-((hist2$Symbol |> unique() |> length()) ^-1.5)
 
@@ -559,10 +570,10 @@ calc_trades_2 <- function(positions2, opporotunities, cash_reserve = 0.05, sell_
   
   
   ## TODO Fix
-while(sum(sellPotentials$sell) < min(sum(joined$value)*cash_reserve)) {
-  sellPotentials |>
-    mutate()
-}
+  while(sum(sellPotentials$sell) < min(sum(joined$value)*cash_reserve)) {
+    sellPotentials |>
+      mutate()
+  }
   
   sum(joined$value)*cash_reserve-sellPotentials$sell |> sum()
   
