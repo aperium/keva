@@ -75,7 +75,7 @@ read_excels <- function(path, trim_at_blank_line = TRUE, ...) {
 }
 
 lastTradingClose <- function(dt = now()) {
-  dt %<>% with_tz("America/New_York")
+  dt <- dt |> with_tz("America/New_York")
   h <- dt |> hour()
   beforeClosePenalty <- if_else(h < 16L, dhours(24-16+h), dhours(-16+h))
   dt <- dt - beforeClosePenalty
@@ -86,7 +86,7 @@ lastTradingClose <- function(dt = now()) {
 }
 
 nextTradingClose <- function(dt = now()) {
-  dt %<>% with_tz("America/New_York")
+  dt <- dt |> with_tz("America/New_York")
   h <- dt |> hour()
   beforeCloseBoost <- if_else(h < 16L, dhours(16-h), dhours(24+16-h))
   dt <- dt + beforeCloseBoost
@@ -98,7 +98,7 @@ nextTradingClose <- function(dt = now()) {
 
 ## from a curl http download, turn the headers list into a tibble
 http_headers_to_columns_single <- function(headers_line) {
-  headers_line |>
+  headers_line |> 
     str_squish() |>
     # str_split("(?<=HTTP/\\d\\.?\\d?[:space:])|(:[:space:])") |> 
     str_split("((?<=HTTP)/)|(:[:space:])") |> 
@@ -172,7 +172,72 @@ portfolio_url <- "https://digital.fidelity.com/ftgw/digital/portfolio/positions"
 
 
 
-```{r downloadhistoricdata}
+```{r downloadYAHOOdata, eval=FALSE}
+# "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
+# symbols <- c(targets$Symbol, positions$Symbol) |> unique() |> keep(\(x) !str_equal(x,"SPAXX"))
+
+baseURL <- "https://query1.finance.yahoo.com/v7/finance/download/"
+start_date <- "01-01-2010" |> dmy() |> as_datetime() |> as.integer()
+end_date <- now() |> round_date() |> as.integer()
+query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
+
+mutualFund_symbols <- data_path |> 
+  dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> as.character() |>
+  read_excels(col_types = "text") |>
+  filter(!sjmisc::is_empty(`YTD (Daily)`),
+         `Morningstar- Overall` |> str_starts("5"),
+         `Name` |> str_detect("Fidelity")) |>
+  distinct() |>
+  mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
+  select("Symbol")
+
+other_symbols <- data_path |> 
+  dir_ls(regexp = "[\\/]screener_results.*xls$") |>
+  read_excels(col_types = "text") |>
+  filter(!sjmisc::is_empty(`Market Price`)) |>
+  distinct() |>
+  # mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
+  select("Symbol")
+
+manual_symbols = c("NFTY") |> 
+  as_tibble_col("Symbol")
+
+download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Symbol)) |>
+  # add_row(manual_symbols) |>
+  add_row(mutualFund_symbols) |>
+  # add_row(other_symbols) |> # reducing the computational burden for now
+  distinct() |>
+  filter(!str_equal(Symbol,"SPAXX")) |>
+  mutate(url_query = str_c(baseURL, Symbol |> str_to_lower(),query),
+         file_dest = path(hist_path, Symbol |> str_c(".csv")),
+         file_exists = file_dest |> file_exists(),
+         file_dest |> file_info(),
+         file_age = interval(modification_time, now()) |> as.duration())
+
+## This mess downloads data that needs updated. AND if any files fail, it re-tries with wait times between the attempts. 
+slow_multi_download <- slowly(multi_download, rate_backoff(pause_base = 3, max_times = 3))
+download_details <- download_paramaters |>
+  # filter((!file_exists) | (file_age > dhours(8)))
+  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
+if(nrow(download_details) |> as.logical()) {
+    download_details %<>% mutate(slow_multi_download(url_query, file_dest))
+    download_details %<>% mutate(headers |> http_headers_to_columns())
+  # Retry with wait times
+  errors <- download_details |> filter(!str_detect(`HTTP`, "(2[:number:]{2})"))
+  while(errors |> nrow() > 0) {
+    message(str_c("HTTP/",errors$HTTP |> unique())) # information about the problem
+    errors <- errors |> mutate(slow_multi_download(url_query, file_dest))
+    errors <- errors |> mutate(headers |> http_headers_to_columns())
+    download_details <- rows_upsert(download_details, errors)
+    errors <- errors |> filter(!str_detect(`HTTP`, "(2[:number:]{2})"))
+  }
+  download_paramaters %<>% left_join(download_details)
+  }
+
+# testing new twelve data api because Yahoo Finance seems to be blocking me
+```
+
+```{r downloadTDdata, eval=FALSE}
 
 # "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
 # symbols <- c(targets$Symbol, positions$Symbol) |> unique() |> keep(\(x) !str_equal(x,"SPAXX"))
