@@ -100,13 +100,17 @@ nextTradingClose <- function(dt = now()) {
 http_headers_to_columns_single <- function(headers_line) {
   headers_line |>
     str_squish() |>
-    str_split("((?<=HTTP/2)[:space:])|(:[:space:])") |> 
+    # str_split("(?<=HTTP/\\d\\.?\\d?[:space:])|(:[:space:])") |> 
+    str_split("((?<=HTTP)/)|(:[:space:])") |> 
     list_transpose() |> 
     as.data.frame(col.names = c("name","value")) |> 
     pivot_wider(names_from = name)
 }
 # the vectorized version
 http_headers_to_columns <- function(headers) {headers |> sapply(http_headers_to_columns_single, simplify = F) |> list_rbind()}
+
+# http_headers_to_columns(download_details$headers[1:3])
+# http_headers_to_columns_single(download_details$headers[[1]])
 
 ```
 
@@ -181,7 +185,8 @@ query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=
 mutualFund_symbols <- data_path |> 
   dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> as.character() |>
   read_excels(col_types = "text") |>
-  filter(!sjmisc::is_empty(`YTD (Daily)`)) |>
+  filter(!sjmisc::is_empty(`YTD (Daily)`),
+         `Morningstar- Overall` |> str_starts("5")) |>
   distinct() |>
   mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
   select("Symbol")
@@ -207,7 +212,7 @@ manual_symbols = c("NFTY") |>
 download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Symbol)) |>
   add_row(manual_symbols) |>
   add_row(mutualFund_symbols) |>
-  add_row(other_symbols) |>
+  # add_row(other_symbols) |> # reducing the computational burden for now
   distinct() |>
   filter(!str_equal(Symbol,"SPAXX")) |>
   mutate(url_query = str_c(baseURL, Symbol |> str_to_lower(),query),
@@ -218,7 +223,7 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
 
 
 ## This mess downloads data that needs updated. AND if any files fail, it re-tries with wait times between the attempts. 
-slow_multi_download <- slowly(multi_download, rate_backoff(pause_base = 10, max_times = 5))
+slow_multi_download <- slowly(multi_download, rate_backoff(pause_base = 3, max_times = 3))
 download_details <- download_paramaters |>
   # filter((!file_exists) | (file_age > dhours(8)))
   filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
@@ -226,12 +231,13 @@ if(nrow(download_details) |> as.logical()) {
     download_details %<>% mutate(slow_multi_download(url_query, file_dest))
     download_details %<>% mutate(headers |> http_headers_to_columns())
   # Retry with wait times
-  errors <- download_details |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
+  errors <- download_details |> filter(!str_detect(`HTTP`, "(2[:number:]{2})"))
   while(errors |> nrow() > 0) {
+    message(str_c("HTTP/",errors$HTTP |> unique())) # information about the problem
     errors <- errors |> mutate(slow_multi_download(url_query, file_dest))
     errors <- errors |> mutate(headers |> http_headers_to_columns())
-    download_details <- rows_update(download_details, errors)
-    errors <- errors |> filter(!str_detect(`HTTP/2`, "2[:number:]{2}"))
+    download_details <- rows_upsert(download_details, errors)
+    errors <- errors |> filter(!str_detect(`HTTP`, "(2[:number:]{2})"))
   }
   download_paramaters %<>% left_join(download_details)
   }
