@@ -117,7 +117,8 @@ http_headers_to_columns <- function(headers) {headers |> sapply(http_headers_to_
 ```{r paths}
 
 data_path <- "Dropbox (Personal)/Projects/investing" |> fs::path_home()
-hist_path <- "Dropbox (Personal)/Projects/investing/historic data" |> fs::path_home()
+hist_path_yahoo <- "Dropbox (Personal)/Projects/investing/historic data" |> fs::path_home()
+hist_path_td <- "Dropbox (Personal)/Projects/investing/td downloads" |> fs::path_home()
 
 ```
 
@@ -209,7 +210,7 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
   distinct() |>
   filter(!str_equal(Symbol,"SPAXX")) |>
   mutate(url_query = str_c(baseURL, Symbol |> str_to_lower(),query),
-         file_dest = path(hist_path, Symbol |> str_c(".csv")),
+         file_dest = path(hist_path_yahoo, Symbol |> str_c(".csv")),
          file_exists = file_dest |> file_exists(),
          file_dest |> file_info(),
          file_age = interval(modification_time, now()) |> as.duration())
@@ -238,14 +239,14 @@ if(nrow(download_details) |> as.logical()) {
 ```
 
 ```{r downloadTDdata, eval=FALSE}
+# API guide: https://support.twelvedata.com/en/articles/5203360-bulk-requests
+# baseURL <- "https://api.twelvedata.com/time_series"
 
-# "https://query1.finance.yahoo.com/v7/finance/download/FAMRX?period1=938179800&period2=1723135605&interval=1d&events=history&includeAdjustedClose=true"
-# symbols <- c(targets$Symbol, positions$Symbol) |> unique() |> keep(\(x) !str_equal(x,"SPAXX"))
 
-baseURL <- "https://query1.finance.yahoo.com/v7/finance/download/"
-start_date <- "01-01-2010" |> dmy() |> as_datetime() |> as.integer()
-end_date <- now() |> round_date() |> as.integer()
-query <- str_c("?period1=",start_date,"&period2=",end_date,"&interval=1d&events=history&includeAdjustedClose=true")
+start_date <- "2010-01-01" |> ymd(tz = "America/New_York") |> as_datetime()
+end_date <- now(tzone = "America/New_York") |> round_date()
+interval <- "1day"
+
 
 mutualFund_symbols <- data_path |> 
   dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> as.character() |>
@@ -281,32 +282,15 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
   # add_row(other_symbols) |> # reducing the computational burden for now
   distinct() |>
   filter(!str_equal(Symbol,"SPAXX")) |>
-  mutate(url_query = str_c(baseURL, Symbol |> str_to_lower(),query),
-         file_dest = path(hist_path, Symbol |> str_c(".csv")),
-         file_exists = file_dest |> file_exists(),
-         file_dest |> file_info(),
+  mutate(path = path(hist_path_td, Symbol |> str_c(".csv")),
+         file_exists = path |> file_exists(),
+         path |> file_info(),
          file_age = interval(modification_time, now()) |> as.duration())
 
 
-## This mess downloads data that needs updated. AND if any files fail, it re-tries with wait times between the attempts. 
-slow_multi_download <- slowly(multi_download, rate_backoff(pause_base = 3, max_times = 3))
 download_details <- download_paramaters |>
-  # filter((!file_exists) | (file_age > dhours(8)))
-  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(10))) | (size <= fs_bytes("1K")))
-if(nrow(download_details) |> as.logical()) {
-    download_details %<>% mutate(slow_multi_download(url_query, file_dest))
-    download_details %<>% mutate(headers |> http_headers_to_columns())
-  # Retry with wait times
-  errors <- download_details |> filter(!str_detect(`HTTP`, "(2[:number:]{2})"))
-  while(errors |> nrow() > 0) {
-    message(str_c("HTTP/",errors$HTTP |> unique())) # information about the problem
-    errors <- errors |> mutate(slow_multi_download(url_query, file_dest))
-    errors <- errors |> mutate(headers |> http_headers_to_columns())
-    download_details <- rows_upsert(download_details, errors)
-    errors <- errors |> filter(!str_detect(`HTTP`, "(2[:number:]{2})"))
-  }
-  download_paramaters %<>% left_join(download_details)
-  }
+  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(120))) | (size <= fs_bytes("1K")))
+
 
 
 # testing new twelve data api because Yahoo Finance seems to be blocking me
