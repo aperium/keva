@@ -186,7 +186,8 @@ mutualFund_symbols <- data_path |>
   dir_ls(regexp = "[\\/]Download_Results.*xlsx$") |> as.character() |>
   read_excels(col_types = "text") |>
   filter(!sjmisc::is_empty(`YTD (Daily)`),
-         `Morningstar- Overall` |> str_starts("5")) |>
+         `Morningstar- Overall` |> str_starts("5"),
+         `Name` |> str_detect("Fidelity")) |>
   distinct() |>
   mutate(Symbol = str_extract(Name, "(?<=\\()[:upper:]*(?=\\))"), .before = 1) |>
   select("Symbol")
@@ -210,7 +211,7 @@ manual_symbols = c("NFTY") |>
   as_tibble_col("Symbol")
 
 download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Symbol)) |>
-  add_row(manual_symbols) |>
+  # add_row(manual_symbols) |>
   add_row(mutualFund_symbols) |>
   # add_row(other_symbols) |> # reducing the computational burden for now
   distinct() |>
@@ -244,8 +245,11 @@ if(nrow(download_details) |> as.logical()) {
 
 
 # testing new twelve data api because Yahoo Finance seems to be blocking me
+# looking promissing.
+# TODO
 
-
+TWELVEDATA_API_KEY <- tools::R_user_dir("td") |> path("api2.dcf") |> read_file() |> str_extract("(?<=^key:[:space:])[:graph:].*")
+time_series(c("FSELX","FAMRX"),"1day","raw", apikey = TWELVEDATA_API_KEY)
 
 
 ```
