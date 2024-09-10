@@ -298,8 +298,15 @@ download_details <- download_paramaters |>
 # TODO
 
 TWELVEDATA_API_KEY <- tools::R_user_dir("td") |> path("api2.dcf") |> read_file() |> str_extract("(?<=^key:[:space:])[:graph:].*")
-time_series(c("FSELX","FAMRX"),"1day","raw", apikey = TWELVEDATA_API_KEY)
 
+td_data <- time_series(c("FSELX","FAMRX"),"1day","raw", apikey = TWELVEDATA_API_KEY)
+
+# td_data[[1]] |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$"))
+download_results <- td_data |> lapply(\(y) y |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title())) |> list_rbind() |> right_join(download_paramaters)
+
+# td_data[[1]] |> as.data.frame() |> select(contains("meta")|contains("values")) |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> write_csv(file = download_results |> filter(Symbol == td_data[[1]]$meta$symbol) |> pull("path"))
+
+td_data |> lapply(\(y) y |> as.data.frame() |> select(contains("meta")|contains("values")) |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> write_csv(file = download_results |> filter(Symbol == y$meta$symbol) |> pull("path")))
 
 ```
 
