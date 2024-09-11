@@ -289,7 +289,7 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
 
 
 download_details <- download_paramaters |>
-  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(120))) | (size <= fs_bytes("1K")))
+  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(1))) | (size <= fs_bytes("1K")))
 
 
 
@@ -301,7 +301,28 @@ TWELVEDATA_API_KEY <- tools::R_user_dir("td") |> path("api2.dcf") |> read_file()
 
 # DOWNLOAD limit is 8 calls per minute and 800 per day
 # TODO call 8 and wait
-td_data <- time_series(download_details$Symbol,"1day","raw", apikey = TWELVEDATA_API_KEY)
+# td_data <- time_series(download_details$Symbol,interval = interval,"raw", apikey = TWELVEDATA_API_KEY)
+
+batch_size <- function(n, max = 8) {ceiling(n/ceiling(n/max))}
+batch_count <- function(n, max = 8) {ceiling(n/max)}
+# batch_size(25)
+# batch_count(25)
+
+slow_time_series <- slowly(time_series, rate = rate_delay(pause = 60))
+td_data_batched <- foreach(i = 1:batch_count(length(download_details$Symbol)), .combine = rbind) %do% {
+  batch <- keep((1:batch_size(length(download_details$Symbol)))+batch_size(length(download_details$Symbol))*(i-1), \(x) (x <= length(download_details$Symbol)))
+  batch_download <- slow_time_series(download_details |> filter(row_number() %in% batch) |> pull(Symbol),interval = interval,"raw", apikey = TWELVEDATA_API_KEY)
+  
+  # download details
+  batch_meta_file_data <- batch_download |> lapply(\(y) y |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title())) |> list_rbind()
+  
+  # save files
+  batch_download |> lapply(\(y) y |> as.data.frame() |> select(contains("meta")|contains("values")) |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> write_csv(file = download_paramaters |> filter(Symbol == y$meta$symbol) |> pull("path")))
+  
+  batch_meta_file_data
+}
+
+ # left_join(download_paramaters)
 
 # DOWNLOAD META DATA AND STATUS
 # td_data[[1]] |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$"))
