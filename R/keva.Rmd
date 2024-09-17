@@ -243,9 +243,9 @@ if(nrow(download_details) |> as.logical()) {
 # baseURL <- "https://api.twelvedata.com/time_series"
 
 
-start_date <- "2010-01-01" |> ymd(tz = "America/New_York") |> as_datetime()
-end_date <- now(tzone = "America/New_York") |> round_date()
-interval <- "1day"
+START_DATE <- "2024-08-01" |> ymd(tz = "America/New_York") |> as_datetime()
+END_DATE <- now(tzone = "America/New_York") |> round_date()
+INTERVAL <- "1day"
 
 
 mutualFund_symbols <- data_path |> 
@@ -280,18 +280,21 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
   # add_row(manual_symbols) |>
   add_row(mutualFund_symbols) |>
   # add_row(other_symbols) |> # reducing the computational burden for now
+  slice_sample(n=8) |>. # just for testing to reduce time.
   distinct() |>
   filter(!str_equal(Symbol,"SPAXX")) |>
   mutate(path = path(hist_path_td, Symbol |> str_c(".csv")),
          file_exists = path |> file_exists(),
          path |> file_info(),
-         file_age = interval(modification_time, now()) |> as.duration())
+         file_age = interval(modification_time, now()) |> as.duration(),
+         path |> read_csv(col_select = c("Datetime")) |> summarise(earliest = min(Datetime), latest = max(Datetime)),
+         start_date = if_else(START_DATE < earliest, START_DATE, latest) |> as_date(),
+         end_date = if_else(END_DATE > latest, END_DATE, earliest) |> as_date(),
+         needs_update = (!file_exists) | ((start_date <= end_date)&((modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(1))) | (size <= fs_bytes("1K")))))
 
 
-download_details <- download_paramaters |>
-  filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(1))) | (size <= fs_bytes("1K")))
-
-
+download_details <- download_paramaters |> filter(needs_update == TRUE)
+  # filter((!file_exists) | (modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(1))) | (size <= fs_bytes("1K")))
 
 # testing new twelve data api because Yahoo Finance seems to be blocking me
 # looking promissing.
@@ -308,10 +311,11 @@ batch_count <- function(n, max = 8) {ceiling(n/max)}
 # batch_size(25)
 # batch_count(25)
 
+n <- nrow(download_details)
 slow_time_series <- slowly(time_series, rate = rate_delay(pause = 60))
-td_data_batched <- foreach(i = 1:batch_count(length(download_details$Symbol)), .combine = rbind) %do% {
-  batch <- keep((1:batch_size(length(download_details$Symbol)))+batch_size(length(download_details$Symbol))*(i-1), \(x) (x <= length(download_details$Symbol)))
-  batch_download <- slow_time_series(download_details |> filter(row_number() %in% batch) |> pull(Symbol),interval = interval,"raw", apikey = TWELVEDATA_API_KEY)
+td_data_batched <- foreach(i = 1:batch_count(n), .combine = rbind) %do% {
+  batch <- keep((1:batch_size(n))+batch_size(n)*(i-1), \(x) (x <= length(download_details$Symbol)))
+  batch_download <- slow_time_series(download_details |> filter(row_number() %in% batch) |> select(Symbol, start_date, end_date) |> rename(sym = Symbol),interval = interval,"raw", apikey = TWELVEDATA_API_KEY)
   
   # download details
   batch_meta_file_data <- batch_download |> lapply(\(y) y |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title())) |> list_rbind()
