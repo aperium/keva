@@ -244,7 +244,7 @@ if(nrow(download_details) |> as.logical()) {
 
 
 START_DATE <- "2020-01-01" |> ymd(tz = "America/New_York") |> as_datetime()
-END_DATE <- now(tzone = "America/New_York") |> round_date() 
+END_DATE <- now(tzone = "America/New_York") |> min(lastTradingClose()) |> round_date(unit = "day")
 INTERVAL <- "1day"
 
 
@@ -328,21 +328,14 @@ td_data_batched <- foreach(i = 1:batch_count(n), .combine = rbind) %do% {
                                           y = y |> as.data.frame() |> select(contains("meta")|contains("values")) |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> mutate(Datetime = ymd(Datetime),
                                                                                                                                                                                                   across(c("Open","High","Low","Close"), as.numeric))) |> 
                              distinct() |>
-                             arrange(Datetime) |>
+                             arrange(desc(Datetime)) |>
                              write_csv(file = batch_rows |> filter(Symbol == y$meta$symbol) |> pull("path")))
   
   batch_meta_file_data
 }
 
- # left_join(download_paramaters)
+## read in data from files
 
-# DOWNLOAD META DATA AND STATUS
-# td_data[[1]] |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$"))
-# download_results <- td_data |> lapply(\(y) y |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title())) |> list_rbind() |> right_join(download_paramaters)
-
-# SAVE AS FILES
-# td_data[[1]] |> as.data.frame() |> select(contains("meta")|contains("values")) |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> write_csv(file = download_results |> filter(Symbol == td_data[[1]]$meta$symbol) |> pull("path"))
-# td_data |> lapply(\(y) y |> as.data.frame() |> select(contains("meta")|contains("values")) |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> write_csv(file = download_results |> filter(Symbol == y$meta$symbol) |> pull("path")))
 
 ```
 
@@ -420,31 +413,31 @@ new_positions
 
 ```{r historictrends, eval=FALSE}
   
-hist <- download_paramaters$path |> read_csv(id = "path", col_types = "Ddddddd") |>
+hist <- download_paramaters$path |> read_csv(id = "path", col_types = "cccccccTdddd") |>
   na.omit() |>
-  left_join(download_paramaters |> select(Symbol, path)) |>
+  # left_join(download_paramaters |> select(Symbol, path)) |>
   select(Symbol, !path) |>
   group_by(Symbol) |>
-  mutate(Delta = `Adj Close` - lag(`Adj Close`, order_by = Date),
-         pDelta = Delta/lag(`Adj Close`, order_by = Date),
-         apyDelta = pDelta * dyears(1)/as.duration(interval(lag(Date, order_by = Date),Date)),
-         dNow = apyDelta - last(apyDelta, order_by = `Date`)) |>
-  arrange(desc(Date)) |>
+  mutate(Delta = Close - lag(Close, order_by = Datetime),
+         pDelta = Delta/lag(Close, order_by = Datetime),
+         apyDelta = pDelta * dyears(1)/as.duration(interval(lag(Datetime, order_by = Datetime),Datetime)),
+         dNow = apyDelta - last(apyDelta, order_by = Datetime)) |>
+  arrange(desc(Datetime)) |>
   mutate(meanNagoAPYdelta = cummean(apyDelta)) |>
   filter(!is.na(Delta))
 
 hist |>
-  filter(as.duration(interval(Date, max(Date))) <= dyears(3)) |>
+  filter(as.duration(interval(Datetime, max(Datetime))) <= dyears(3)) |>
   summarise(mean(apyDelta),
-            last(apyDelta, order_by = Date))
+            last(apyDelta, order_by = Datetime))
 
 # FAMRX <- hist |> filter(str_equal(Symbol, "FAMRX"))
 # lm(apyDelta ~ Date, FAMRX) |> anova()
 
 hist |> 
   # filter(str_equal(Symbol, "FSELX")) |>
-  filter(as.duration(interval(Date, max(Date))) <= dyears(3)) |>
-ggplot(aes(x = Date, y = meanNagoAPYdelta, color = Symbol, fill = Symbol)) +
+  filter(as.duration(interval(Datetime, max(Datetime))) <= dyears(3)) |>
+ggplot(aes(x = Datetime, y = meanNagoAPYdelta, color = Symbol, fill = Symbol)) +
   geom_point(size = 1e-4, alpha = 3/4) +
   geom_smooth(method = "lm", alpha = 0.25) +
   facet_wrap(vars(Symbol)) +
