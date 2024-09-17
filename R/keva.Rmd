@@ -18,7 +18,7 @@ output:
 
 ```{r setup, echo=FALSE, error=TRUE, message=TRUE, warning=TRUE, include=FALSE}
 # this block loads required packages and some custom functions. 
-cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl", "datawizard", "sjmisc", "quantmod", "xts", "zoo", "TTR", "tidyquant") #, "rvest", "chromote","httr2", "forecast"
+cran_pacs <- c("tidyverse","writexl","fs","stringr","rlang","magrittr","stats","foreach", "doParallel", "parallel", "fs", "janitor", "stringr","lubridate","forcats", "purrr","multidplyr", "curl", "units", "readxl", "datawizard", "sjmisc", "TTR", "tidyquant", "xts") #, "rvest", "chromote","httr2", "forecast", "zoo", "PerformanceAnalytics", "quantmod"
 dev_pacs <- c("eddelbuettel/td") 
 bioc_pacs <- c()
 py_pacs <- c()
@@ -411,7 +411,7 @@ new_positions
 
 ```
 
-```{r historictrends, eval=FALSE}
+```{r historictrends, eval=TRUE}
   
 hist <- download_paramaters$path |> read_csv(id = "path", col_types = "cccccccTdddd") |>
   na.omit() |>
