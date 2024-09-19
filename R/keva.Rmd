@@ -238,7 +238,7 @@ if(nrow(download_details) |> as.logical()) {
 # testing new twelve data api because Yahoo Finance seems to be blocking me
 ```
 
-```{r downloadTDdata, eval=FALSE}
+```{r downloadTDdata, eval=TRUE}
 # API guide: https://support.twelvedata.com/en/articles/5203360-bulk-requests
 # baseURL <- "https://api.twelvedata.com/time_series"
 
@@ -321,7 +321,7 @@ td_data_batched <- foreach(i = 1:batch_count(n), .combine = rbind) %do% {
   batch_download <- slow_time_series(batch_rows |> pull(Symbol), start_date = min(batch_rows$start_date), end_date = max(batch_rows$end_date), interval = INTERVAL,"raw", apikey = TWELVEDATA_API_KEY) #
   
   # download details
-  batch_meta_file_data <- batch_download |> lapply(\(y) y |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> mutate(across(everything(), as_string))) |> list_rbind()
+  batch_meta_file_data <- batch_download |> lapply(\(y) y |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> mutate(across(everything(), as.character))) |> list_rbind()
   
   # save files
   batch_download |> lapply(\(y) full_join(x = read_csv(file = batch_rows |> filter(Symbol == y$meta$symbol) |> pull("path"), show_col_types = FALSE), 
@@ -339,7 +339,7 @@ td_data_batched <- foreach(i = 1:batch_count(n), .combine = rbind) %do% {
 
 ```
 
-```{r calctradesfun}
+```{r calctradesfun, eval = FALSE}
 calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.001, sell_buffer = 0.05, transfer = 0) {
   
   # joined <- full_join(positions,targets)
@@ -615,7 +615,7 @@ hist2 |>
 
 ```
 
-```{r calctradesfun2}
+```{r calctradesfun2, eval=FALSE}
 
 ##
 # positions is tibble as downloaded from fidelity
@@ -693,6 +693,20 @@ positions2 <- positions |>
 opporotunities <- oppoPred |> select(Symbol, opporotunity)
 
 trades <- calc_trades_2(positions2, opporotunities, cash_reserve = 0.05, sell_buffer = 0.05, maxBuys = 4)
+
+```
+
+
+```{r analysisTesting}
+
+# this section is mostly me testing "TTR" and "tidyquant"
+
+
+hist3 <- download_paramaters$path |> read_csv(id = "path", col_types = "cccccccTdddd") |>
+  na.omit() |>
+  # left_join(download_paramaters |> select(Symbol, path)) |>
+  select(Symbol, !path) |>
+  group_by(Symbol)
 
 ```
 
