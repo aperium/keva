@@ -353,7 +353,9 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
     add_case(Symbol = "SPAXX", targ_prop = cash_reserve) |>
     full_join(positions |> mutate(Symbol = Symbol |> as.character())) |>
     mutate(across(where(\(x) class(x) |> str_equal("units")),\(x) if_else(is.na(x),0 |> as_units(),x)),
-           across(where(\(x) !str_equal(class(x),"units") & is.numeric(x)),\(x) if_else(is.na(x),0,x))) |>
+           across(where(\(x) !str_equal(class(x),"units") & is.numeric(x)),\(x) if_else(is.na(x),0,x)))
+    
+  adjusted <- joined |>
     mutate(value = value + if_else(str_equal(Symbol,"SPAXX"), transfer, 0),
            targ_pos = sum(value) * targ_prop,
            targ_pos = targ_pos |> round(2),
@@ -363,19 +365,34 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
     select(-changes0, -changes1)
   
   # an algorithm that sorts by order of trades to make
-  moneymarket <- joined |> filter(str_equal(Symbol,"SPAXX"))
-  buys <- joined |> 
+  moneymarket <- joined |> filter(str_equal(Symbol,"SPAXX")) |>
+    mutate(targ_pos = sum(joined$value)*cash_reserve-transfer,
+           changes = 0)
+  buys <- adjusted |> 
     filter(!str_equal(Symbol,"SPAXX"), changes > 0) |> 
-    # mutate(changes = pmin(sum(joined$value) * max_change, changes)) |>
-    arrange(desc(changes)) ##|>  
+    # mutate(changes = pmin(sum(adjusted$value) * max_change, changes)) |>
+    arrange(desc(changes))
     # filter(cumany(sum(changes)-cumsum(changes) > sum(moneymarket$value)))
     ##mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value)*(1-sell_buffer), changes, pmax(0,sum(moneymarket$value)*(1-sell_buffer)-cumsum(changes)+changes) |> pmin(changes))) ##TODO script that limits buys to money avalible with margin for error
-  sells <- joined |> 
+    
+  remainingbuy <- sum(moneymarket$value)*(1-sell_buffer)
+  for(i in 1:nrow(buys)) {
+    if(buys[i,]$changes > remainingbuy) buys[i,]$changes = remainingbuy
+    remainingbuy = remainingbuy - buys[i,]$changes
+  }
+  
+  sells <- adjusted |> 
     filter(!str_equal(Symbol,"SPAXX"), changes < 0) |>
-    # mutate(changes = pmax(-1 * sum(joined$value) * max_change, changes)) |> 
+    # mutate(changes = pmax(-1 * sum(adjusted$value) * max_change, changes)) |> 
     arrange(changes) ##|>
     # filter(!cumall(-cumsum(changes) + sum(moneymarket$value) - sum(buys$changes) <= sum(moneymarket$targ_pos)))
     ##mutate(changes = if_else(-cumsum(changes) < sum(moneymarket$targ_pos), changes, pmin(0,-sum(moneymarket$targ_pos)-cumsum(changes)+changes) |> pmax(changes))) ##TODO
+  
+  remainingsell <- -sum(joined$value)*cash_reserve-transfer
+  for(i in 1:nrow(sells)) {
+    if(sells[i,]$changes < remainingsell) sells[i,]$changes = remainingsell
+    remainingsell = remainingsell - sells[i,]$changes
+  }
   
   # print(buys)
   # print(sells)
@@ -384,7 +401,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
     add_row(sells) |>
     arrange(desc(abs(changes)))
   
-  holds <- joined |> 
+  holds <- adjusted |> 
     filter(not(Symbol %in% trades$Symbol),
            !str_equal(Symbol, "SPAXX")) |>
     mutate(changes = 0)
@@ -406,7 +423,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 new_positions <- positions |> 
   filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`) |>
-  calc_trades(targets, cash_reserve = 0.0375, max_change = 0.2, min_change = 0.0001, sell_buffer = 0.05, transfer = -5000) 
+  calc_trades(targets, cash_reserve = 5/80, max_change = 1/40, min_change = 0.01, sell_buffer = 0.05, transfer = -10000) 
 
 # new_positions |> summarise(total = sum(new_est))
 new_positions
