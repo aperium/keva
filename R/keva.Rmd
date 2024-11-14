@@ -340,7 +340,7 @@ td_data_batched <- foreach(i = 1:batch_count(n), .combine = rbind) %do% {
 
 ```
 
-```{r calctradesfun, eval = FALSE}
+```{r calctradesfun, eval = TRUE}
 calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.1, min_change = 0.001, sell_buffer = 0.05, transfer = 0) {
   
   # joined <- full_join(positions,targets)
@@ -369,7 +369,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
     # mutate(changes = pmin(sum(joined$value) * max_change, changes)) |>
     arrange(desc(changes)) ##|>  
     # filter(cumany(sum(changes)-cumsum(changes) > sum(moneymarket$value)))
-    ##mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value)*(1-sell_buffer), changes, pmax(0,sum(moneymarket$value)*(1-sell_buffer)-cumsum(changes)+changes) |> pmin(changes))) ##TODO
+    ##mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value)*(1-sell_buffer), changes, pmax(0,sum(moneymarket$value)*(1-sell_buffer)-cumsum(changes)+changes) |> pmin(changes))) ##TODO script that limits buys to money avalible with margin for error
   sells <- joined |> 
     filter(!str_equal(Symbol,"SPAXX"), changes < 0) |>
     # mutate(changes = pmax(-1 * sum(joined$value) * max_change, changes)) |> 
@@ -399,7 +399,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 ```
 
 
-```{r calctrades, eval=FALSE}
+```{r calctrades, eval=TRUE}
 
 ## broken since I updated the fun
 
