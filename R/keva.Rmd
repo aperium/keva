@@ -154,7 +154,7 @@ positions <- data_path |>
 targets <- data_path |> 
   path("fidelity_targets_20240803.tsv") |> 
   read_tsv(show_col_types = FALSE) |>
-  mutate(across(c(`Symbol`), as.factor))
+  mutate(across(c(`Symbol`), as_factor))
 
 accounts <- positions |> 
   group_by(`Account Number`, `Account Name`) |>
@@ -291,7 +291,8 @@ download_paramaters <- add_row(targets |> select(Symbol), positions |> select(Sy
   ungroup() |>
   mutate(start_date = if_else(START_DATE < earliest, START_DATE, latest) |> as_date(),
          end_date = if_else(END_DATE > latest, END_DATE, earliest) |> as_date(),
-         needs_update = (!file_exists) | ((start_date <= end_date)&((modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(1))) | (size <= fs_bytes("1K")))) | !(start_date %within% interval(earliest, latest)) | !(end_date %within% interval(earliest, latest)))
+         needs_update = (!file_exists) | ((start_date <= end_date)&((modification_time < lastTradingClose() + dhours(4)) | ((modification_time < lastTradingClose()) & (file_age > dminutes(1))) | (size <= fs_bytes("1K")))) | !(start_date %within% interval(earliest, latest)) | !(end_date %within% interval(earliest, latest))) |>
+  arrange(start_date, end_date)
 
 
 download_details <- download_paramaters |> filter(needs_update == TRUE) # |>
@@ -318,7 +319,7 @@ slow_time_series <- slowly(time_series, rate = rate_delay(pause = 60))
 td_data_batched <- foreach(i = 1:batch_count(n), .combine = rbind) %do% {
   batch_i <- keep((1:batch_size(n))+batch_size(n)*(i-1), \(x) (x <= n))
   batch_rows <- download_details |> filter(row_number() %in% batch_i)
-  batch_download <- slow_time_series(batch_rows |> pull(Symbol), start_date = min(batch_rows$start_date), end_date = max(batch_rows$end_date), interval = INTERVAL,"raw", apikey = TWELVEDATA_API_KEY) #TODO something is going wrong here
+  batch_download <- slow_time_series(batch_rows |> pull(Symbol), start_date = min(batch_rows$start_date), end_date = max(batch_rows$end_date), interval = INTERVAL,"raw", apikey = TWELVEDATA_API_KEY) # if this fails, clear memory and re-run all.
   
   # download details
   batch_meta_file_data <- batch_download |> lapply(\(y) y |> as.data.frame() |> select(!contains("values")) |> distinct() |> rename_with(\(x) str_extract(x,"[:alnum:]*$") |> str_to_title()) |> mutate(across(everything(), as.character))) |> list_rbind()
@@ -347,10 +348,12 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
   joined <- targets |>
     arrange(rank) |>
     mutate(series = sapply(0:(n()-1),\(x) (1-n()^(-1))^x), 
-           targ_prop = series/sum(series) * (1-cash_reserve)) |>
+           targ_prop = series/sum(series) * (1-cash_reserve),
+           across(where(is.factor),as.character)) |>
     add_case(Symbol = "SPAXX", targ_prop = cash_reserve) |>
-    full_join(positions) |>
-    mutate(across(where(is.numeric),\(x) if_else(is.na(x),0,x))) |>
+    full_join(positions |> mutate(Symbol = Symbol |> as.character())) |>
+    mutate(across(where(\(x) class(x) |> str_equal("units")),\(x) if_else(is.na(x),0 |> as_units(),x)),
+           across(where(\(x) !str_equal(class(x),"units") & is.numeric(x)),\(x) if_else(is.na(x),0,x))) |>
     mutate(value = value + if_else(str_equal(Symbol,"SPAXX"), transfer, 0),
            targ_pos = sum(value) * targ_prop,
            targ_pos = targ_pos |> round(2),
@@ -364,15 +367,15 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
   buys <- joined |> 
     filter(!str_equal(Symbol,"SPAXX"), changes > 0) |> 
     # mutate(changes = pmin(sum(joined$value) * max_change, changes)) |>
-    arrange(desc(changes)) |>
+    arrange(desc(changes)) ##|>  
     # filter(cumany(sum(changes)-cumsum(changes) > sum(moneymarket$value)))
-    mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value)*(1-sell_buffer), changes, pmax(0,sum(moneymarket$value)*(1-sell_buffer)-cumsum(changes)+changes) |> pmin(changes)))
+    ##mutate(changes = if_else(cumsum(changes) < sum(moneymarket$value)*(1-sell_buffer), changes, pmax(0,sum(moneymarket$value)*(1-sell_buffer)-cumsum(changes)+changes) |> pmin(changes))) ##TODO
   sells <- joined |> 
     filter(!str_equal(Symbol,"SPAXX"), changes < 0) |>
     # mutate(changes = pmax(-1 * sum(joined$value) * max_change, changes)) |> 
-    arrange(changes) |>
+    arrange(changes) ##|>
     # filter(!cumall(-cumsum(changes) + sum(moneymarket$value) - sum(buys$changes) <= sum(moneymarket$targ_pos)))
-    mutate(changes = if_else(-cumsum(changes) < sum(moneymarket$targ_pos), changes, pmin(0,-sum(moneymarket$targ_pos)-cumsum(changes)+changes) |> pmax(changes)))
+    ##mutate(changes = if_else(-cumsum(changes) < sum(moneymarket$targ_pos), changes, pmin(0,-sum(moneymarket$targ_pos)-cumsum(changes)+changes) |> pmax(changes))) ##TODO
   
   # print(buys)
   # print(sells)
@@ -403,7 +406,7 @@ calc_trades <- function(positions, targets, cash_reserve = 0.05, max_change = 0.
 new_positions <- positions |> 
   filter(`Account Number` == accounts$`Account Number`[str_detect(accounts$`Account Name` |> str_to_lower(),"bda" |> str_to_lower())]) |>
   select(Symbol, value = `Current Value`) |>
-  calc_trades(targets, cash_reserve = 0.1*2/3, max_change = 0.1, min_change = 0.005, transfer = 0) 
+  calc_trades(targets, cash_reserve = 0.0375, max_change = 0.2, min_change = 0.0001, sell_buffer = 0.05, transfer = -5000) 
 
 # new_positions |> summarise(total = sum(new_est))
 new_positions
